@@ -1059,21 +1059,563 @@ function VideoUpload({ lessonId, videoUrl, onSaved }) {
 
 /* ═══════════════════════════════════════════════════
    QUIZ BUILDER  —  JSON in quiz_content
+   Supports: MC, TF, YN, SA question types
+   Tabs: Create, Paste, Download
    ═══════════════════════════════════════════════════ */
 
-const EMPTY_QUESTION = { question: '', options: ['', '', '', ''], correct: 0 }
+const Q_TYPES = [
+  { value: 'MC', label: 'Multiple Choice' },
+  { value: 'TF', label: 'True / False' },
+  { value: 'YN', label: 'Yes / No' },
+  { value: 'SA', label: 'Short Answer' },
+]
 
+const Q_TYPE_LABEL = Object.fromEntries(Q_TYPES.map((t) => [t.value, t.label]))
+
+function newQuestion(type) {
+  if (type === 'MC') return { type: 'MC', question: '', options: ['', ''], correct: 0 }
+  if (type === 'TF') return { type: 'TF', question: '', options: ['True', 'False'], correct: 0 }
+  if (type === 'YN') return { type: 'YN', question: '', options: ['Yes', 'No'], correct: 0 }
+  if (type === 'SA') return { type: 'SA', question: '', answer: '' }
+  return { type: 'MC', question: '', options: ['', ''], correct: 0 }
+}
+
+/* normalise legacy questions (old format had no type field) */
+function normaliseQuestion(q) {
+  if (q.type) return q
+  if (q.answer !== undefined) return { ...q, type: 'SA' }
+  return { ...q, type: 'MC' }
+}
+
+function DownloadIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+    </svg>
+  )
+}
+
+function ClipboardIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ArrowUpIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+    </svg>
+  )
+}
+
+function ArrowDownIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  )
+}
+
+/* ── Single Question Card ── */
+function QuizQuestionCard({ q, qi, total, onUpdate, onRemove, onMoveUp, onMoveDown, onChangeType }) {
+  const type = q.type || 'MC'
+
+  const typeBadgeColor = {
+    MC: 'bg-purple-900/30 text-purple-400',
+    TF: 'bg-blue-900/30 text-blue-400',
+    YN: 'bg-amber-900/30 text-amber-400',
+    SA: 'bg-emerald-900/30 text-emerald-400',
+  }
+
+  return (
+    <div className="bg-[#0e0b1a] border border-purple-900/30 rounded-xl p-4">
+      {/* header row */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+          <span className="text-xs font-bold text-purple-400 bg-purple-900/30 rounded-md px-2 py-0.5">
+            Q{qi + 1}
+          </span>
+          <select
+            className={`text-[10px] font-semibold rounded-md px-1.5 py-0.5 cursor-pointer border-none outline-none ${typeBadgeColor[type] || typeBadgeColor.MC}`}
+            value={type}
+            onChange={(e) => onChangeType(qi, e.target.value)}
+            title="Change question type"
+          >
+            {Q_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          {/* reorder arrows */}
+          <div className="flex items-center gap-0.5 ml-1">
+            <button
+              onClick={() => onMoveUp(qi)}
+              disabled={qi === 0}
+              className="text-zinc-600 hover:text-purple-400 disabled:opacity-20 disabled:cursor-default transition-colors cursor-pointer"
+              title="Move up"
+            >
+              <ArrowUpIcon size={14} />
+            </button>
+            <button
+              onClick={() => onMoveDown(qi)}
+              disabled={qi === total - 1}
+              className="text-zinc-600 hover:text-purple-400 disabled:opacity-20 disabled:cursor-default transition-colors cursor-pointer"
+              title="Move down"
+            >
+              <ArrowDownIcon size={14} />
+            </button>
+          </div>
+        </div>
+        <input
+          className={inputCls + ' flex-1'}
+          value={q.question}
+          onChange={(e) => onUpdate(qi, 'question', e.target.value)}
+          placeholder="Enter your question…"
+        />
+        <button
+          onClick={() => onRemove(qi)}
+          className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0 mt-1"
+          title="Remove question"
+        >
+          <TrashIcon size={16} />
+        </button>
+      </div>
+
+      {/* ── MC options ── */}
+      {type === 'MC' && (
+        <div className="ml-9 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {(q.options || []).map((opt, oi) => (
+              <div key={oi} className="flex items-center gap-2">
+                <button
+                  onClick={() => onUpdate(qi, 'correct', oi)}
+                  className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all ring-1 ${
+                    q.correct === oi
+                      ? 'bg-emerald-600 text-white ring-emerald-500'
+                      : 'bg-zinc-800 text-zinc-500 ring-zinc-700 hover:ring-purple-600'
+                  }`}
+                  title={q.correct === oi ? 'Correct answer' : 'Mark as correct'}
+                >
+                  {String.fromCharCode(65 + oi)}
+                </button>
+                <input
+                  className={inputCls + ' flex-1 text-xs'}
+                  value={opt}
+                  onChange={(e) => onUpdate(qi, `option_${oi}`, e.target.value)}
+                  placeholder={`Option ${String.fromCharCode(65 + oi)}`}
+                />
+                {(q.options || []).length > 2 && (
+                  <button
+                    onClick={() => onUpdate(qi, 'remove_option', oi)}
+                    className="text-zinc-700 hover:text-red-400 transition-colors cursor-pointer"
+                    title="Remove option"
+                  >
+                    <TrashIcon size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            {(q.options || []).length < 6 && (
+              <button
+                onClick={() => onUpdate(qi, 'add_option', null)}
+                className="text-xs text-purple-400 hover:text-purple-300 transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <PlusIcon size={12} /> Add Option
+              </button>
+            )}
+            <p className="text-[11px] text-zinc-600">
+              Click a letter to mark correct.
+              {q.correct !== undefined && (
+                <span className="text-emerald-500/70 ml-1">
+                  Correct: {String.fromCharCode(65 + (q.correct || 0))}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── TF options ── */}
+      {type === 'TF' && (
+        <div className="ml-9 flex items-center gap-4">
+          {['True', 'False'].map((label, oi) => (
+            <button
+              key={label}
+              onClick={() => onUpdate(qi, 'correct', oi)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all ring-1 ${
+                q.correct === oi
+                  ? 'bg-emerald-600/20 text-emerald-300 ring-emerald-600'
+                  : 'bg-zinc-800/60 text-zinc-400 ring-zinc-700 hover:ring-purple-600'
+              }`}
+            >
+              <span className={`w-3.5 h-3.5 rounded-full ring-2 flex-shrink-0 ${
+                q.correct === oi ? 'bg-emerald-500 ring-emerald-400' : 'bg-transparent ring-zinc-600'
+              }`} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── YN options ── */}
+      {type === 'YN' && (
+        <div className="ml-9 flex items-center gap-4">
+          {['Yes', 'No'].map((label, oi) => (
+            <button
+              key={label}
+              onClick={() => onUpdate(qi, 'correct', oi)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all ring-1 ${
+                q.correct === oi
+                  ? 'bg-emerald-600/20 text-emerald-300 ring-emerald-600'
+                  : 'bg-zinc-800/60 text-zinc-400 ring-zinc-700 hover:ring-purple-600'
+              }`}
+            >
+              <span className={`w-3.5 h-3.5 rounded-full ring-2 flex-shrink-0 ${
+                q.correct === oi ? 'bg-emerald-500 ring-emerald-400' : 'bg-transparent ring-zinc-600'
+              }`} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── SA answer ── */}
+      {type === 'SA' && (
+        <div className="ml-9">
+          <label className="block text-[11px] text-zinc-500 mb-1">Expected / Sample Answer</label>
+          <input
+            className={inputCls + ' text-xs'}
+            value={q.answer || ''}
+            onChange={(e) => onUpdate(qi, 'answer', e.target.value)}
+            placeholder="Type the expected answer…"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PASTE PARSER  —  handles all common quiz text formats
+   ══════════════════════════════════════════════════════════════ */
+
+/*
+  Helper: extract inline options from a single-line string.
+  Detects " A. " " B. " etc markers in sequential A→B→C→D→E→F order.
+  Returns { questionText, options[] }
+  No lookbehind used — works in all browsers including older Safari.
+*/
+function splitOptionsFromText(text) {
+  const flat = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+
+  /* Find option markers: a space (or start) then A. or A: or A) then space
+     We manually scan to avoid lookbehind which breaks older Safari. */
+  const markers = []
+  const letters = 'ABCDEF'
+  let nextExpected = 0 // index into letters: 0=A, 1=B, …
+
+  for (let i = 0; i < flat.length; i++) {
+    if (nextExpected >= letters.length) break
+    const ch = flat[i].toUpperCase()
+    if (ch !== letters[nextExpected]) continue
+
+    /* Check boundary: must be at start or preceded by whitespace */
+    if (i > 0 && flat[i - 1] !== ' ') continue
+
+    /* Check delimiter: next char must be . : or ) */
+    if (i + 1 >= flat.length) continue
+    const delim = flat[i + 1]
+    if (delim !== '.' && delim !== ':' && delim !== ')') continue
+
+    /* Check that there's a space (or end) after the delimiter */
+    if (i + 2 < flat.length && flat[i + 2] !== ' ') continue
+
+    const contentStart = i + 2 < flat.length ? i + 3 : i + 2
+    markers.push({ pos: i, contentStart })
+    nextExpected++
+  }
+
+  if (markers.length < 2) return { questionText: flat, options: [] }
+
+  const questionText = flat.slice(0, markers[0].pos).trim()
+  const options = markers.map((mk, idx) => {
+    const start = mk.contentStart
+    const end = idx + 1 < markers.length ? markers[idx + 1].pos : flat.length
+    return flat.slice(start, end).trim()
+  })
+
+  return { questionText, options }
+}
+
+/*
+  Main parser — auto-detects and handles:
+  1. Numbered questions (1. 2. 3.) with optional Answer Key at the bottom
+  2. Structured format (Type:/Q:/Correct:)
+  3. Free-form questions separated by blank lines
+  Options can be on the same line or separate lines.
+*/
+function parsePastedQuiz(text) {
+  if (!text || !text.trim()) return []
+
+  /* Normalise line endings: \r\n → \n, stray \r → \n */
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  /* ── Step 1: Extract Answer Key if present ─────────────────── */
+  const answerKeys = {}
+
+  /*  Match "Answer Key" (case-insensitive) that appears on its own line,
+      optionally followed by a colon, with answer lines below it.
+      We search for the LAST occurrence in case "answer" appears in a question. */
+  const akRegex = /^[ \t]*answer\s*key[:\s]*$/im
+  const akLineMatch = akRegex.exec(text)
+  let bodyText = text
+
+  if (akLineMatch) {
+    /* Everything after the "Answer Key" header line */
+    const afterHeader = text.slice(akLineMatch.index + akLineMatch[0].length)
+    const keyLines = afterHeader.split('\n').map(l => l.trim()).filter(Boolean)
+    for (const kl of keyLines) {
+      const km = kl.match(/^(\d+)[.)]\s*([A-Fa-f])\b/i)
+      if (km) {
+        answerKeys[parseInt(km[1])] = km[2].toUpperCase().charCodeAt(0) - 65
+      }
+    }
+    /* Body is everything BEFORE the answer key line */
+    bodyText = text.slice(0, akLineMatch.index).trim()
+  }
+
+  /* ── Step 2: Detect if this is structured Type:/Q: format ── */
+  if (/^(Type:|Q:)\s/im.test(bodyText)) {
+    const result = parseStructuredFormat(bodyText)
+    if (result.length > 0) return result
+  }
+
+  /* ── Step 3: Split into raw question blocks ── */
+  const rawBlocks = splitIntoQuestionBlocks(bodyText)
+
+  /* ── Step 4: Parse each block ── */
+  const questions = []
+  for (let i = 0; i < rawBlocks.length; i++) {
+    const block = rawBlocks[i]
+    const parsed = parseOneQuestion(block.text)
+    if (!parsed) continue
+
+    /* Override correct answer from Answer Key if available */
+    let correctIdx = parsed.correct
+    if (block.num != null && answerKeys[block.num] !== undefined) {
+      correctIdx = Math.min(answerKeys[block.num], Math.max(parsed.options.length - 1, 0))
+    }
+
+    questions.push({
+      type: parsed.type,
+      question: parsed.question,
+      options: parsed.options,
+      correct: correctIdx,
+      ...(parsed.answer !== undefined ? { answer: parsed.answer } : {}),
+    })
+  }
+
+  return questions
+}
+
+/* Split body text into question blocks, each with optional question number */
+function splitIntoQuestionBlocks(text) {
+  const blocks = []
+
+  /* Find numbered question starts: "1." or "1)" at start of a line,
+     followed by non-digit (to avoid matching option markers like A.) */
+  const numberedRegex = /(?:^|\n)[ \t]*(\d+)[.)]\s+/gm
+  const numberedStarts = []
+  let nm
+  while ((nm = numberedRegex.exec(text)) !== null) {
+    numberedStarts.push({
+      num: parseInt(nm[1]),
+      fullMatchEnd: nm.index + nm[0].length,
+      matchStart: nm.index,
+    })
+  }
+
+  if (numberedStarts.length >= 1) {
+    for (let i = 0; i < numberedStarts.length; i++) {
+      const start = numberedStarts[i].fullMatchEnd
+      const end = i + 1 < numberedStarts.length ? numberedStarts[i + 1].matchStart : text.length
+      const raw = text.slice(start, end).trim()
+      if (raw) blocks.push({ num: numberedStarts[i].num, text: raw })
+    }
+    if (blocks.length > 0) return blocks
+  }
+
+  /* Fallback: split on blank lines */
+  const blankSplit = text.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean)
+  return blankSplit.map((b, i) => ({ num: i + 1, text: b }))
+}
+
+/* Parse a single question block into { question, options, correct, type } */
+function parseOneQuestion(text) {
+  /* Strip leading number prefix if still present: "1." or "1)" */
+  let clean = text.replace(/^\d+[.)]\s*/, '').trim()
+  if (!clean) return null
+
+  /* Check for "Correct: X" at the end */
+  let inlineCorrect = -1
+  const correctMatch = clean.match(/\n?\s*Correct:\s*([A-Fa-f])\s*$/i)
+  if (correctMatch) {
+    inlineCorrect = correctMatch[1].toUpperCase().charCodeAt(0) - 65
+    clean = clean.slice(0, correctMatch.index).trim()
+  }
+
+  /* Check for Type: prefix */
+  let type = 'MC'
+  const typeMatch = clean.match(/^Type:\s*(MC|TF|YN|SA)\s*\n?/i)
+  if (typeMatch) {
+    type = typeMatch[1].toUpperCase()
+    clean = clean.slice(typeMatch[0].length).trim()
+  }
+
+  /* Strip Q: prefix */
+  const qPrefix = clean.match(/^Q:\s*/i)
+  if (qPrefix) {
+    clean = clean.slice(qPrefix[0].length).trim()
+  }
+
+  /* Handle TF / YN / SA types */
+  if (type === 'TF') {
+    return { type: 'TF', question: clean, options: ['True', 'False'], correct: inlineCorrect >= 0 ? inlineCorrect : 0 }
+  }
+  if (type === 'YN') {
+    return { type: 'YN', question: clean, options: ['Yes', 'No'], correct: inlineCorrect >= 0 ? inlineCorrect : 0 }
+  }
+  if (type === 'SA') {
+    const ansLine = clean.match(/\n?\s*Answer:\s*(.+)/i)
+    const answer = ansLine ? ansLine[1].trim() : ''
+    const q = ansLine ? clean.slice(0, ansLine.index).trim() : clean
+    return { type: 'SA', question: q, options: [], correct: 0, answer }
+  }
+
+  /* ── MC: split question text from options ── */
+
+  /* Try 1: options on separate lines (A. ... \n B. ...) */
+  const lines = clean.split('\n').map((l) => l.trim()).filter(Boolean)
+  const firstOptLineIdx = lines.findIndex((l) => /^[A-Fa-f][.:)]\s/.test(l))
+
+  if (firstOptLineIdx > 0) {
+    const questionText = lines.slice(0, firstOptLineIdx).join(' ').trim()
+    const options = []
+    for (let li = firstOptLineIdx; li < lines.length; li++) {
+      const om = lines[li].match(/^[A-Fa-f][.:)]\s*(.+)/)
+      if (om) options.push(om[1].trim())
+    }
+    if (options.length >= 2) {
+      return { type: 'MC', question: questionText, options, correct: inlineCorrect >= 0 ? Math.min(inlineCorrect, options.length - 1) : 0 }
+    }
+  }
+
+  /* Try 2: options inline on the same line (question text A. opt1 B. opt2 …) */
+  const { questionText, options } = splitOptionsFromText(clean)
+
+  if (options.length >= 2) {
+    return { type: 'MC', question: questionText, options, correct: inlineCorrect >= 0 ? Math.min(inlineCorrect, options.length - 1) : 0 }
+  }
+
+  /* No options found — still add as question with empty options */
+  if (questionText) {
+    return { type: 'MC', question: questionText, options: ['', ''], correct: 0 }
+  }
+
+  return null
+}
+
+/* Structured format parser (Type:/Q:/Correct: blocks separated by blank lines) */
+function parseStructuredFormat(text) {
+  const blocks = text.split(/\n\s*\n/).filter(Boolean)
+  const questions = []
+
+  for (const block of blocks) {
+    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean)
+    let type = 'MC'
+    let question = ''
+    const options = []
+    let correct = 0
+    let answer = ''
+
+    for (const line of lines) {
+      const typeM = line.match(/^Type:\s*(MC|TF|YN|SA)/i)
+      if (typeM) { type = typeM[1].toUpperCase(); continue }
+
+      const qM = line.match(/^Q:\s*(.+)/i)
+      if (qM) { question = qM[1]; continue }
+
+      const optM = line.match(/^([A-Fa-f])[.:)]\s*(.+)/)
+      if (optM) { options.push(optM[2].trim()); continue }
+
+      const corM = line.match(/^Correct:\s*(True|False|Yes|No|[A-Fa-f](?!\w)|.+)/i)
+      if (corM) {
+        const val = corM[1].trim()
+        if (/^true$/i.test(val)) correct = 0
+        else if (/^false$/i.test(val)) correct = 1
+        else if (/^yes$/i.test(val)) correct = 0
+        else if (/^no$/i.test(val)) correct = 1
+        else if (/^[A-Fa-f]$/i.test(val)) correct = val.toUpperCase().charCodeAt(0) - 65
+        else answer = val
+        continue
+      }
+
+      const ansM = line.match(/^Answer:\s*(.+)/i)
+      if (ansM) { answer = ansM[1]; continue }
+    }
+
+    if (!question) continue
+
+    if (type === 'SA') questions.push({ type: 'SA', question, answer })
+    else if (type === 'TF') questions.push({ type: 'TF', question, options: ['True', 'False'], correct })
+    else if (type === 'YN') questions.push({ type: 'YN', question, options: ['Yes', 'No'], correct })
+    else questions.push({ type: 'MC', question, options: options.length >= 2 ? options : ['', ''], correct: Math.min(correct, Math.max(options.length - 1, 0)) })
+  }
+  return questions
+}
+
+/* ── Export questions to text ── */
+function exportQuizText(questions) {
+  return questions.map((q, i) => {
+    const lines = [`Type: ${q.type || 'MC'}`, `Q: ${q.question}`]
+    if (q.type === 'SA') {
+      lines.push(`Answer: ${q.answer || ''}`)
+    } else if (q.type === 'TF') {
+      lines.push(`Correct: ${q.correct === 0 ? 'True' : 'False'}`)
+    } else if (q.type === 'YN') {
+      lines.push(`Correct: ${q.correct === 0 ? 'Yes' : 'No'}`)
+    } else {
+      (q.options || []).forEach((opt, oi) => {
+        lines.push(`${String.fromCharCode(65 + oi)}: ${opt}`)
+      })
+      lines.push(`Correct: ${String.fromCharCode(65 + (q.correct || 0))}`)
+    }
+    return lines.join('\n')
+  }).join('\n\n')
+}
+
+/* ── Main QuizBuilder ── */
 function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
   const [questions, setQuestions] = useState(() => {
     try {
       const parsed = typeof initialQuiz === 'string' ? JSON.parse(initialQuiz) : initialQuiz
-      return Array.isArray(parsed) ? parsed : []
+      return Array.isArray(parsed) ? parsed.map(normaliseQuestion) : []
     } catch {
       return []
     }
   })
   const [saveStatus, setSaveStatus] = useState(null)
   const timerRef = useRef(null)
+  const [activeTab, setActiveTab] = useState('create') // create | paste | download
+  const [addType, setAddType] = useState('MC')
+  const [pasteText, setPasteText] = useState('')
+  const [pasteError, setPasteError] = useState('')
+  const [pasteSuccess, setPasteSuccess] = useState('')
 
   useEffect(() => {
     return () => {
@@ -1104,7 +1646,7 @@ function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
   }
 
   const addQuestion = () => {
-    const updated = [...questions, { ...EMPTY_QUESTION, options: ['', '', '', ''] }]
+    const updated = [...questions, newQuestion(addType)]
     setQuestions(updated)
     save(updated)
   }
@@ -1120,9 +1662,20 @@ function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
       if (i !== index) return q
       if (field === 'question') return { ...q, question: value }
       if (field === 'correct') return { ...q, correct: value }
+      if (field === 'answer') return { ...q, answer: value }
+      if (field === 'add_option') {
+        const opts = [...(q.options || [])]
+        if (opts.length < 6) opts.push('')
+        return { ...q, options: opts }
+      }
+      if (field === 'remove_option') {
+        const opts = (q.options || []).filter((_, oi) => oi !== value)
+        const newCorrect = q.correct >= opts.length ? opts.length - 1 : q.correct
+        return { ...q, options: opts, correct: Math.max(0, newCorrect) }
+      }
       if (field.startsWith('option_')) {
         const optIdx = parseInt(field.split('_')[1])
-        const opts = [...q.options]
+        const opts = [...(q.options || [])]
         opts[optIdx] = value
         return { ...q, options: opts }
       }
@@ -1132,75 +1685,213 @@ function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
     save(updated)
   }
 
+  const moveQuestion = (index, direction) => {
+    const target = index + direction
+    if (target < 0 || target >= questions.length) return
+    const updated = [...questions]
+    const temp = updated[index]
+    updated[index] = updated[target]
+    updated[target] = temp
+    setQuestions(updated)
+    save(updated)
+  }
+
+  const changeQuestionType = (index, newType) => {
+    const updated = questions.map((q, i) => {
+      if (i !== index) return q
+      const base = { type: newType, question: q.question }
+      if (newType === 'MC') return { ...base, options: q.options && q.options.length >= 2 && q.type === 'MC' ? q.options : ['', ''], correct: 0 }
+      if (newType === 'TF') return { ...base, options: ['True', 'False'], correct: 0 }
+      if (newType === 'YN') return { ...base, options: ['Yes', 'No'], correct: 0 }
+      if (newType === 'SA') return { ...base, answer: q.answer || '' }
+      return base
+    })
+    setQuestions(updated)
+    save(updated)
+  }
+
+  const handlePasteImport = () => {
+    setPasteError('')
+    setPasteSuccess('')
+    const parsed = parsePastedQuiz(pasteText)
+    if (parsed.length === 0) {
+      setPasteError(pasteText.slice(0, 500) + (pasteText.length > 500 ? '\n…(truncated)' : ''))
+      return
+    }
+    const updated = [...questions, ...parsed]
+    setQuestions(updated)
+    save(updated)
+    setPasteText('')
+    setPasteSuccess(`Successfully imported ${parsed.length} question${parsed.length !== 1 ? 's' : ''}!`)
+    setTimeout(() => setPasteSuccess(''), 5000)
+  }
+
+  const handleDownload = () => {
+    const text = exportQuizText(questions)
+    const blob = new Blob([text], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `quiz-${lessonId}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const tabCls = (tab) =>
+    `px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer transition-colors ${
+      activeTab === tab
+        ? 'bg-purple-600/30 text-purple-300 ring-1 ring-purple-600/50'
+        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'
+    }`
+
   return (
     <div>
       <SectionHeading icon="❓" title="Quiz Builder">
         <SaveIndicator status={saveStatus} />
-        <button onClick={addQuestion} className={btnSmPurple + ' flex items-center gap-1'}>
-          <PlusIcon size={12} /> Add Question
-        </button>
+        <span className="text-xs text-zinc-600">{questions.length} question{questions.length !== 1 && 's'}</span>
       </SectionHeading>
 
-      {questions.length === 0 && (
-        <p className="text-xs text-zinc-600 italic py-2">No quiz questions yet — click "Add Question" to start</p>
+      {/* ── Tabs ── */}
+      <div className="flex items-center gap-2 mb-4">
+        <button onClick={() => setActiveTab('create')} className={tabCls('create')}>Create</button>
+        <button onClick={() => setActiveTab('paste')} className={tabCls('paste')}>
+          <span className="inline-flex items-center gap-1"><ClipboardIcon size={12} /> Paste</span>
+        </button>
+        <button onClick={() => setActiveTab('download')} className={tabCls('download')}>
+          <span className="inline-flex items-center gap-1"><DownloadIcon size={12} /> Download</span>
+        </button>
+      </div>
+
+      {/* ══════ CREATE TAB ══════ */}
+      {activeTab === 'create' && (
+        <div>
+          {/* add question bar */}
+          <div className="flex items-center gap-2 mb-4">
+            <select
+              className={inputCls + ' w-auto text-xs'}
+              value={addType}
+              onChange={(e) => setAddType(e.target.value)}
+            >
+              {Q_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+            <button onClick={addQuestion} className={btnSmPurple + ' flex items-center gap-1'}>
+              <PlusIcon size={12} /> Add Question
+            </button>
+          </div>
+
+          {questions.length === 0 && (
+            <p className="text-xs text-zinc-600 italic py-2">No quiz questions yet — select a type and click "Add Question" to start</p>
+          )}
+
+          <div className="space-y-4">
+            {questions.map((q, qi) => (
+              <QuizQuestionCard
+                key={qi}
+                q={q}
+                qi={qi}
+                total={questions.length}
+                onUpdate={updateQuestion}
+                onRemove={removeQuestion}
+                onMoveUp={(i) => moveQuestion(i, -1)}
+                onMoveDown={(i) => moveQuestion(i, 1)}
+                onChangeType={changeQuestionType}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
-      <div className="space-y-4">
-        {questions.map((q, qi) => (
-          <div key={qi} className="bg-[#0e0b1a] border border-purple-900/30 rounded-xl p-4">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <span className="text-xs font-bold text-purple-400 bg-purple-900/30 rounded-md px-2 py-0.5 flex-shrink-0 mt-1">
-                Q{qi + 1}
-              </span>
-              <input
-                className={inputCls + ' flex-1'}
-                value={q.question}
-                onChange={(e) => updateQuestion(qi, 'question', e.target.value)}
-                placeholder="Enter your question…"
-              />
-              <button
-                onClick={() => removeQuestion(qi)}
-                className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0 mt-1"
-                title="Remove question"
-              >
-                <TrashIcon size={16} />
-              </button>
+      {/* ══════ PASTE TAB ══════ */}
+      {activeTab === 'paste' && (
+        <div className="space-y-3">
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            Paste questions below. The parser auto-detects the format — options can be on the same line or separate lines.
+          </p>
+
+          {/* Format examples */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Same-line options */}
+            <div>
+              <p className="text-[10px] font-semibold text-purple-400 uppercase tracking-wider mb-1.5">Options on Same Line</p>
+              <div className="bg-[#0e0b1a] border border-purple-900/30 rounded-lg p-3 text-[11px] font-mono text-zinc-500 leading-relaxed whitespace-pre-wrap">{'1. What is the purpose of verification? A. To speed up the call B. To protect info C. To collect details D. To reduce follow-ups\n\n2. When should you ask security questions? A. After answering B. Only if unsure C. Before details D. When missing\n\nAnswer Key\n1. B\n2. C'}</div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 ml-9">
-              {q.options.map((opt, oi) => (
-                <div key={oi} className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateQuestion(qi, 'correct', oi)}
-                    className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all ring-1 ${
-                      q.correct === oi
-                        ? 'bg-emerald-600 text-white ring-emerald-500'
-                        : 'bg-zinc-800 text-zinc-500 ring-zinc-700 hover:ring-purple-600'
-                    }`}
-                    title={q.correct === oi ? 'Correct answer' : 'Mark as correct'}
-                  >
-                    {String.fromCharCode(65 + oi)}
-                  </button>
-                  <input
-                    className={inputCls + ' flex-1 text-xs'}
-                    value={opt}
-                    onChange={(e) => updateQuestion(qi, `option_${oi}`, e.target.value)}
-                    placeholder={`Option ${String.fromCharCode(65 + oi)}`}
-                  />
-                </div>
-              ))}
+            {/* Separate-line options */}
+            <div>
+              <p className="text-[10px] font-semibold text-purple-400 uppercase tracking-wider mb-1.5">Options on Separate Lines</p>
+              <div className="bg-[#0e0b1a] border border-purple-900/30 rounded-lg p-3 text-[11px] font-mono text-zinc-500 leading-relaxed whitespace-pre-wrap">{'1. What is the purpose of verification?\nA. To speed up the call\nB. To protect info\nC. To collect details\nD. To reduce follow-ups\n\nAnswer Key\n1. B'}</div>
             </div>
-            <p className="text-[11px] text-zinc-600 mt-2 ml-9">
-              Click a letter circle to mark the correct answer.
-              {q.correct !== undefined && (
-                <span className="text-emerald-500/70 ml-1">
-                  Correct: {String.fromCharCode(65 + q.correct)}
-                </span>
-              )}
+          </div>
+
+          <p className="text-[10px] text-zinc-600 leading-relaxed">
+            Also supports: <span className="text-zinc-500">Type: MC/TF/YN/SA</span> format, <span className="text-zinc-500">Correct: B</span> inline, options with <span className="text-zinc-500">A:</span> or <span className="text-zinc-500">A)</span> delimiters, <span className="text-zinc-500">A</span> through <span className="text-zinc-500">F</span> options, questions without numbers separated by blank lines.
           </p>
+
+          <textarea
+            className={inputCls + ' resize-y min-h-[120px] font-mono text-[13px] leading-relaxed'}
+            rows={8}
+            value={pasteText}
+            onChange={(e) => { setPasteText(e.target.value); setPasteError(''); setPasteSuccess('') }}
+            placeholder="Paste quiz text here…"
+          />
+          {pasteError && (
+            <div className="bg-red-950/40 border border-red-900/40 rounded-lg p-3">
+              <p className="text-xs text-red-400 font-medium mb-1">Could not parse any questions from the pasted text.</p>
+              <p className="text-[11px] text-red-400/70 mb-2">Check that your text has question text followed by options (A. B. C. D.) and try again.</p>
+              <pre className="text-[10px] text-red-300/50 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">{pasteError}</pre>
+            </div>
+          )}
+          {pasteSuccess && (
+            <div className="bg-emerald-950/40 border border-emerald-900/40 rounded-lg px-3 py-2">
+              <p className="text-xs text-emerald-400 font-medium">✓ {pasteSuccess}</p>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePasteImport}
+              disabled={!pasteText.trim()}
+              className={btnPrimary + ' disabled:opacity-40'}
+            >
+              Import Questions
+            </button>
+            <span className="text-[11px] text-zinc-600">Questions will be appended to the existing quiz</span>
+          </div>
         </div>
-        ))}
-      </div>
+      )}
+
+      {/* ══════ DOWNLOAD TAB ══════ */}
+      {activeTab === 'download' && (
+        <div className="space-y-3">
+          <p className="text-xs text-zinc-500">Export your quiz questions as a formatted text file.</p>
+
+          {questions.length === 0 ? (
+            <p className="text-xs text-zinc-600 italic py-4">No questions to export yet.</p>
+          ) : (
+            <>
+              <div className="bg-[#0e0b1a] border border-purple-900/30 rounded-lg p-4 max-h-60 overflow-y-auto">
+                <pre className="text-[12px] font-mono text-zinc-400 whitespace-pre-wrap leading-relaxed">
+                  {exportQuizText(questions)}
+                </pre>
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={handleDownload} className={btnPrimary + ' flex items-center gap-2'}>
+                  <DownloadIcon size={14} /> Download .txt
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(exportQuizText(questions))
+                  }}
+                  className={btnGhost + ' flex items-center gap-2'}
+                >
+                  <ClipboardIcon size={14} /> Copy to Clipboard
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
