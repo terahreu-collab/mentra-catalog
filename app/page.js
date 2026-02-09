@@ -90,6 +90,16 @@ function UploadIcon({ size = 16 }) {
   )
 }
 
+function UsersIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+      <circle cx="9" cy="7" r="4" strokeLinecap="round" strokeLinejoin="round" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+    </svg>
+  )
+}
+
 function BellIcon({ size = 20 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -704,6 +714,44 @@ function AddTeamMemberForm({ onDone }) {
         </button>
       </div>
     </form>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   MANAGE TEAM MODAL CONTENT
+   ═══════════════════════════════════════════════════ */
+
+function ManageTeamList({ teamMembers, onDelete }) {
+  return (
+    <div className="space-y-1">
+      {teamMembers.length === 0 ? (
+        <p className="text-sm text-zinc-600 text-center py-6">No team members yet.</p>
+      ) : (
+        teamMembers.map((t) => (
+          <div
+            key={t.id}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-purple-900/10 transition-colors group"
+          >
+            <div className="w-8 h-8 rounded-full bg-purple-900/40 flex items-center justify-center text-xs font-bold text-purple-300 flex-shrink-0">
+              {t.name?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-zinc-200 font-medium truncate">{t.name}</p>
+              {t.email && (
+                <p className="text-xs text-zinc-500 truncate">{t.email}</p>
+              )}
+            </div>
+            <button
+              onClick={() => onDelete(t.id, t.name)}
+              className="text-zinc-700 hover:text-red-400 transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+              title={`Delete ${t.name}`}
+            >
+              <TrashIcon size={14} />
+            </button>
+          </div>
+        ))
+      )}
+    </div>
   )
 }
 
@@ -1425,6 +1473,12 @@ export default function Home() {
         await supabase.from('courses').delete().eq('id', id)
       } else if (type === 'lesson') {
         await supabase.from('lessons').delete().eq('id', id)
+      } else if (type === 'team_member') {
+        /* unassign any lessons referencing this team member first */
+        await supabase.from('lessons').update({ assigned_to: null }).eq('assigned_to', id)
+        /* remove their notifications */
+        await supabase.from('notifications').delete().eq('team_member_id', id)
+        await supabase.from('team_members').delete().eq('id', id)
       }
     } catch (err) {
       console.error('Delete failed:', err)
@@ -1447,6 +1501,7 @@ export default function Home() {
     course: 'Add Course',
     lesson: 'Add Lesson',
     team: 'Add Team Member',
+    'manage-team': 'Manage Team',
   }
 
   /* ─── helpers for hierarchy ─── */
@@ -1461,9 +1516,7 @@ export default function Home() {
       <header className="sticky top-0 z-40 bg-[#09071a]/80 backdrop-blur-md border-b border-purple-900/30">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-3 flex-1">
-            <div className="w-9 h-9 rounded-lg bg-purple-600 flex items-center justify-center text-lg font-bold">
-              M
-            </div>
+            <img src="/mentra_logo_light.png" alt="Mentra" className="h-10 w-auto" />
             <div>
               <h1 className="text-lg font-bold text-white leading-tight">Mentra Video Catalog</h1>
               <p className="text-xs text-zinc-500">Production Tracker</p>
@@ -1487,6 +1540,16 @@ export default function Home() {
                 {b.label}
               </button>
             ))}
+
+            {/* ── Manage Team ── */}
+            <button
+              onClick={() => setModal({ type: 'manage-team' })}
+              className="flex items-center gap-1.5 bg-zinc-800/60 hover:bg-zinc-700/60 text-zinc-400 hover:text-purple-300 border border-zinc-700/40 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ml-1"
+              title="Manage Team"
+            >
+              <UsersIcon size={14} />
+              Manage Team
+            </button>
 
             {/* ── Bell Icon ── */}
             <div className="relative ml-1">
@@ -1722,6 +1785,12 @@ export default function Home() {
           />
         )}
         {modal?.type === 'team' && <AddTeamMemberForm onDone={modalDone} />}
+        {modal?.type === 'manage-team' && (
+          <ManageTeamList
+            teamMembers={teamMembers}
+            onDelete={(id, name) => requestDelete('team_member', id, name)}
+          />
+        )}
       </Modal>
 
       <ConfirmDialog
