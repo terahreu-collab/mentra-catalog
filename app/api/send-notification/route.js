@@ -14,7 +14,7 @@ export async function POST(request) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
     const { data, error } = await resend.emails.send({
-      from: 'Mentra Video Catalog <onboarding@resend.dev>',
+      from: 'Mentra Video Catalog <notifications@mentra-ai.ai>',
       to: [teamMemberEmail],
       subject: `New Video Lesson Assigned: ${lessonTitle}`,
       html: `

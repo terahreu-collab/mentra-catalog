@@ -124,6 +124,111 @@ function DeleteButton({ onClick, title }) {
 }
 
 /* ═══════════════════════════════════════════════════
+   INLINE EDIT  —  pencil icon to rename
+   ═══════════════════════════════════════════════════ */
+
+function PencilIcon({ size = 12 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  )
+}
+
+function CheckIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+    </svg>
+  )
+}
+
+function XIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  )
+}
+
+function InlineEdit({ value, onSave, className = '' }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  const commit = () => {
+    const trimmed = draft.trim()
+    if (trimmed && trimmed !== value) {
+      onSave(trimmed)
+    }
+    setEditing(false)
+  }
+
+  const cancel = () => {
+    setDraft(value)
+    setEditing(false)
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit() }
+    if (e.key === 'Escape') { e.preventDefault(); cancel() }
+  }
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          className={`bg-[#0e0b1a] border border-purple-500/50 rounded px-2 py-0.5 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-purple-500/40 ${className}`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <button
+          onClick={commit}
+          className="text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+          title="Save"
+        >
+          <CheckIcon />
+        </button>
+        <button
+          onClick={cancel}
+          className="text-zinc-500 hover:text-red-400 transition-colors cursor-pointer"
+          title="Cancel"
+        >
+          <XIcon />
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <span className="group/edit inline-flex items-center gap-1.5">
+      <span className={className}>{value}</span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setDraft(value)
+          setEditing(true)
+        }}
+        className="text-zinc-700 opacity-0 group-hover/edit:opacity-100 hover:!text-purple-400 transition-all cursor-pointer"
+        title="Edit name"
+      >
+        <PencilIcon />
+      </button>
+    </span>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
    SMALL REUSABLE COMPONENTS
    ═══════════════════════════════════════════════════ */
 
@@ -1130,7 +1235,7 @@ function LessonDetail({ lesson, onSaved }) {
    LESSON ROW  —  expandable with detail panel
    ═══════════════════════════════════════════════════ */
 
-function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete, isExpanded, onToggleExpand, onSaved, onReassign }) {
+function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename }) {
   const member = teamMembers.find((t) => t.id === lesson.assigned_to)
   const overdue = isOverdue(lesson)
 
@@ -1146,12 +1251,11 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
             >
               <ChevronIcon open={isExpanded} />
             </button>
-            <span
-              className="cursor-pointer hover:text-purple-300 transition-colors"
-              onClick={() => onToggleExpand(lesson.id)}
-            >
-              {lesson.title}
-            </span>
+            <InlineEdit
+              value={lesson.title}
+              onSave={(v) => onRename(lesson.id, v)}
+              className="hover:text-purple-300 transition-colors"
+            />
             {overdue && (
               <span className="text-[10px] bg-red-900/60 text-red-300 ring-1 ring-red-700/60 rounded-full px-1.5 py-0.5 font-medium">
                 OVERDUE
@@ -1390,6 +1494,29 @@ export default function Home() {
     setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, [field]: value } : l)))
   }
 
+  /* ─── rename handler (companies, departments, courses, lessons) ─── */
+  const renameItem = async (table, id, field, newValue) => {
+    /* optimistic local update */
+    const setterMap = {
+      companies: setCompanies,
+      departments: setDepartments,
+      courses: setCourses,
+      lessons: setLessons,
+    }
+    const setter = setterMap[table]
+    if (setter) {
+      setter((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, [field]: newValue } : item)),
+      )
+    }
+
+    const { error } = await supabase.from(table).update({ [field]: newValue }).eq('id', id)
+    if (error) {
+      console.error(`Rename ${table} failed:`, error)
+      fetchAll()
+    }
+  }
+
   /* ─── lesson mutations (optimistic) ─── */
   const cycleStatusHandler = async (lessonId, field, current) => {
     const next = cycleStatus(current)
@@ -1504,10 +1631,23 @@ export default function Home() {
     'manage-team': 'Manage Team',
   }
 
-  /* ─── helpers for hierarchy ─── */
-  const deptsFor = (companyId) => departments.filter((d) => d.company_id === companyId)
-  const coursesFor = (deptId) => courses.filter((c) => c.department_id === deptId)
-  const lessonsFor = (courseId) => lessons.filter((l) => l.course_id === courseId)
+  /* ─── helpers for hierarchy (sorted alphabetically) ─── */
+  const sortedCompanies = useMemo(
+    () => [...companies].sort((a, b) => a.name.localeCompare(b.name)),
+    [companies],
+  )
+  const deptsFor = (companyId) =>
+    departments
+      .filter((d) => d.company_id === companyId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+  const coursesFor = (deptId) =>
+    courses
+      .filter((c) => c.department_id === deptId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+  const lessonsFor = (courseId) =>
+    lessons
+      .filter((l) => l.course_id === courseId)
+      .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
 
   /* ─── render ─── */
   return (
@@ -1603,7 +1743,7 @@ export default function Home() {
               </div>
             </div>
 
-            {companies.length === 0 && (
+            {sortedCompanies.length === 0 && (
               <div className="text-center py-20 text-zinc-600">
                 <p className="text-lg mb-2">No companies yet</p>
                 <p className="text-sm">Click <strong className="text-purple-400">+ Company</strong> above to get started.</p>
@@ -1612,7 +1752,7 @@ export default function Home() {
 
             {/* ── COMPANY LEVEL ── */}
             <div className="space-y-3">
-              {companies.map((company) => {
+              {sortedCompanies.map((company) => {
                 const companyDepts = deptsFor(company.id)
                 const companyLessons = companyDepts.flatMap((d) =>
                   coursesFor(d.id).flatMap((c) => lessonsFor(c.id)),
@@ -1626,7 +1766,11 @@ export default function Home() {
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-purple-900/10 transition-colors cursor-pointer"
                     >
                       <ChevronIcon open={companyOpen} />
-                      <span className="font-semibold text-white">{company.name}</span>
+                      <InlineEdit
+                        value={company.name}
+                        onSave={(v) => renameItem('companies', company.id, 'name', v)}
+                        className="font-semibold text-white"
+                      />
                       {company.is_evergreen && (
                         <span className="bg-emerald-900/40 text-emerald-400 ring-1 ring-emerald-700/50 text-[10px] font-semibold rounded-full px-2 py-0.5">
                           🌿 EVERGREEN
@@ -1666,7 +1810,11 @@ export default function Home() {
                                 className="w-full flex items-center gap-3 px-8 py-2.5 hover:bg-purple-900/10 transition-colors cursor-pointer"
                               >
                                 <ChevronIcon open={deptOpen} />
-                                <span className="font-medium text-purple-200 text-sm">{dept.name}</span>
+                                <InlineEdit
+                                  value={dept.name}
+                                  onSave={(v) => renameItem('departments', dept.id, 'name', v)}
+                                  className="font-medium text-purple-200 text-sm"
+                                />
                                 <span className="ml-auto text-xs text-zinc-600">
                                   {deptCourses.length} course{deptCourses.length !== 1 && 's'} · {deptLessons.length} lesson{deptLessons.length !== 1 && 's'}
                                 </span>
@@ -1700,7 +1848,11 @@ export default function Home() {
                                           className="w-full flex items-center gap-3 px-14 py-2 hover:bg-purple-900/10 transition-colors cursor-pointer"
                                         >
                                           <ChevronIcon open={courseOpen} />
-                                          <span className="font-medium text-purple-300/80 text-sm">{course.name}</span>
+                                          <InlineEdit
+                                            value={course.name}
+                                            onSave={(v) => renameItem('courses', course.id, 'name', v)}
+                                            className="font-medium text-purple-300/80 text-sm"
+                                          />
                                           <span className="ml-auto text-xs text-zinc-600">
                                             {cLessons.length} lesson{cLessons.length !== 1 && 's'}
                                           </span>
@@ -1738,6 +1890,7 @@ export default function Home() {
                                                         onToggleExpand={(id) => toggle('lessons', id)}
                                                         onSaved={updateLessonLocally}
                                                         onReassign={reassignHandler}
+                                                        onRename={(id, v) => renameItem('lessons', id, 'title', v)}
                                                       />
                                                     ))}
                                                   </tbody>
