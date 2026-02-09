@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 /* ═══════════════════════════════════════════════════
@@ -90,6 +90,14 @@ function UploadIcon({ size = 16 }) {
   )
 }
 
+function BellIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+    </svg>
+  )
+}
+
 function DeleteButton({ onClick, title }) {
   return (
     <span
@@ -150,6 +158,79 @@ function Modal({ open, onClose, title, children }) {
           </button>
         </div>
         {children}
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   NOTIFICATION DROPDOWN
+   ═══════════════════════════════════════════════════ */
+
+function NotificationDropdown({ notifications, onMarkRead, onClose }) {
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [onClose])
+
+  return (
+    <div
+      ref={dropdownRef}
+      className="absolute right-0 top-full mt-2 w-80 bg-[#13102a] border border-purple-800/40 rounded-xl shadow-2xl shadow-purple-950/50 z-50 overflow-hidden"
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-purple-900/30">
+        <h3 className="text-sm font-semibold text-purple-200">Notifications</h3>
+        {notifications.some((n) => !n.is_read) && (
+          <button
+            onClick={() => notifications.filter((n) => !n.is_read).forEach((n) => onMarkRead(n.id))}
+            className="text-[11px] text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
+          >
+            Mark all read
+          </button>
+        )}
+      </div>
+      <div className="max-h-80 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <p className="text-xs text-zinc-600 text-center py-8">No notifications yet</p>
+        ) : (
+          notifications.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => !n.is_read && onMarkRead(n.id)}
+              className={`w-full text-left px-4 py-3 border-b border-purple-900/10 last:border-b-0 transition-colors cursor-pointer ${
+                n.is_read
+                  ? 'bg-transparent hover:bg-purple-900/5'
+                  : 'bg-purple-900/10 hover:bg-purple-900/20'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                {!n.is_read && (
+                  <span className="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0 mt-1.5" />
+                )}
+                <div className={!n.is_read ? '' : 'ml-[18px]'}>
+                  <p className={`text-xs leading-relaxed ${n.is_read ? 'text-zinc-500' : 'text-zinc-300'}`}>
+                    {n.message}
+                  </p>
+                  <p className="text-[10px] text-zinc-600 mt-1">
+                    {new Date(n.created_at).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+          </p>
+        </div>
+              </div>
+            </button>
+          ))
+        )}
       </div>
     </div>
   )
@@ -385,13 +466,34 @@ function AddCourseForm({ companies, departments, preselect, onDone }) {
    FORM: ADD LESSON
    ═══════════════════════════════════════════════════ */
 
-function AddLessonForm({ companies, departments, courses, teamMembers, preselect, onDone }) {
+function AddLessonForm({ companies, departments, courses, teamMembers, preselect, onDone, onAssigned }) {
   const [title, setTitle] = useState('')
   const [courseId, setCourseId] = useState(preselect || '')
   const [assignedTo, setAssignedTo] = useState('')
   const [dateAssigned, setDateAssigned] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [scriptStatus, setScriptStatus] = useState('Not Started')
+  const [videoStatus, setVideoStatus] = useState('Not Started')
+  const [dateCompleted, setDateCompleted] = useState('')
   const [hasQuestion, setHasQuestion] = useState(false)
+
+  /* derived flags for conditional UI */
+  const eitherCompleted = scriptStatus === 'Completed' || videoStatus === 'Completed'
+  const bothCompleted = scriptStatus === 'Completed' && videoStatus === 'Completed'
+
+  /* auto-set Date Completed to today when both statuses become Completed */
+  const handleScriptStatus = (val) => {
+    setScriptStatus(val)
+    if (val === 'Completed' && videoStatus === 'Completed' && !dateCompleted) {
+      setDateCompleted(new Date().toISOString().split('T')[0])
+    }
+  }
+  const handleVideoStatus = (val) => {
+    setVideoStatus(val)
+    if (val === 'Completed' && scriptStatus === 'Completed' && !dateCompleted) {
+      setDateCompleted(new Date().toISOString().split('T')[0])
+    }
+  }
   const [questionNote, setQuestionNote] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -417,14 +519,18 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
       assigned_to: assignedTo || null,
       date_assigned: dateAssigned || null,
       due_date: dueDate || null,
-      date_completed: null,
-      script_status: 'Not Started',
-      video_status: 'Not Started',
+      date_completed: dateCompleted || null,
+      script_status: scriptStatus,
+      video_status: videoStatus,
       has_question: hasQuestion,
       question_note: questionNote || null,
     })
     setSaving(false)
     if (error) return console.error(error)
+    /* notify if assigned */
+    if (assignedTo && onAssigned) {
+      onAssigned(assignedTo, title.trim(), courseId)
+    }
     onDone()
   }
 
@@ -450,44 +556,87 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
           placeholder="Introduction to Safety"
         />
       </div>
+      {/* ── Status dropdowns (always visible) ── */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Assigned To</label>
-          <select className={inputCls} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-            <option value="">Unassigned</option>
-            {teamMembers.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
+          <label className={labelCls}>Script Status</label>
+          <select className={inputCls} value={scriptStatus} onChange={(e) => handleScriptStatus(e.target.value)}>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
             ))}
           </select>
         </div>
         <div>
-          <label className={labelCls}>Date Assigned</label>
-          <input
-            type="date"
-            className={inputCls}
-            value={dateAssigned}
-            onChange={(e) => setDateAssigned(e.target.value)}
-          />
+          <label className={labelCls}>Video Status</label>
+          <select className={inputCls} value={videoStatus} onChange={(e) => handleVideoStatus(e.target.value)}>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>Due Date</label>
-          <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+
+      {/* ── Conditional fields based on status ── */}
+      {!eitherCompleted && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Assigned To</label>
+              <select className={inputCls} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+                <option value="">Unassigned</option>
+                {teamMembers.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Date Assigned</label>
+              <input
+                type="date"
+                className={inputCls}
+                value={dateAssigned}
+                onChange={(e) => setDateAssigned(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Due Date</label>
+            <input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </div>
+        </>
+      )}
+
+      {bothCompleted && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelCls}>Completed By</label>
+            <select className={inputCls} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+              <option value="">Select team member…</option>
+              {teamMembers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Date Completed</label>
+            <input type="date" className={inputCls} value={dateCompleted} onChange={(e) => setDateCompleted(e.target.value)} />
+          </div>
         </div>
-        <div className="flex items-end pb-2">
-          <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={hasQuestion}
-              onChange={(e) => setHasQuestion(e.target.checked)}
-              className="accent-purple-500 w-4 h-4"
-            />
-            Has Question
-          </label>
-        </div>
+      )}
+      <div>
+        <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={hasQuestion}
+            onChange={(e) => setHasQuestion(e.target.checked)}
+            className="accent-purple-500 w-4 h-4"
+          />
+          Has Question
+        </label>
       </div>
       {hasQuestion && (
         <div>
@@ -516,13 +665,17 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
 
 function AddTeamMemberForm({ onDone }) {
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
   const [saving, setSaving] = useState(false)
 
   const submit = async (e) => {
     e.preventDefault()
     if (!name.trim()) return
     setSaving(true)
-    const { error } = await supabase.from('team_members').insert({ name: name.trim() })
+    const { error } = await supabase.from('team_members').insert({
+      name: name.trim(),
+      email: email.trim() || null,
+    })
     setSaving(false)
     if (error) return console.error(error)
     onDone()
@@ -533,6 +686,17 @@ function AddTeamMemberForm({ onDone }) {
       <div>
         <label className={labelCls}>Full Name</label>
         <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" />
+      </div>
+      <div>
+        <label className={labelCls}>Email</label>
+        <input
+          type="email"
+          className={inputCls}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="jane@company.com"
+        />
+        <p className="text-[11px] text-zinc-600 mt-1">Used for assignment notifications</p>
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <button type="submit" disabled={saving} className={btnPrimary}>
@@ -702,7 +866,7 @@ function VideoUpload({ lessonId, videoUrl, onSaved }) {
             <button onClick={handleDelete} className={btnDanger}>
               Delete Video
             </button>
-          </div>
+        </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -880,8 +1044,8 @@ function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
                   Correct: {String.fromCharCode(65 + q.correct)}
                 </span>
               )}
-            </p>
-          </div>
+          </p>
+        </div>
         ))}
       </div>
     </div>
@@ -918,7 +1082,7 @@ function LessonDetail({ lesson, onSaved }) {
    LESSON ROW  —  expandable with detail panel
    ═══════════════════════════════════════════════════ */
 
-function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete, isExpanded, onToggleExpand, onSaved }) {
+function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete, isExpanded, onToggleExpand, onSaved, onReassign }) {
   const member = teamMembers.find((t) => t.id === lesson.assigned_to)
   const overdue = isOverdue(lesson)
 
@@ -962,7 +1126,19 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
             )}
           </div>
         </td>
-        <td className="py-2.5 px-3 text-sm text-zinc-400">{member?.name || '—'}</td>
+        <td className="py-2.5 px-3">
+          <select
+            className="bg-transparent text-sm text-zinc-400 hover:text-zinc-200 focus:text-zinc-200 border-none outline-none cursor-pointer appearance-none pr-4 w-full focus:ring-1 focus:ring-purple-500/40 rounded py-0.5"
+            value={lesson.assigned_to || ''}
+            onChange={(e) => onReassign(lesson.id, e.target.value || null, lesson.assigned_to, lesson.title, lesson.course_id)}
+            title="Click to reassign"
+          >
+            <option value="">Unassigned</option>
+            {teamMembers.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </td>
         <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_assigned)}</td>
         <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.due_date)}</td>
         <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_completed)}</td>
@@ -1056,7 +1232,25 @@ export default function Home() {
   // expand / collapse  –  { companies: {}, departments: {}, courses: {}, lessons: {} }
   const [exp, setExp] = useState({ companies: {}, departments: {}, courses: {}, lessons: {} })
 
+  // notifications
+  const [notifications, setNotifications] = useState([])
+  const [showNotifications, setShowNotifications] = useState(false)
+
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.is_read).length,
+    [notifications],
+  )
+
   /* ─── data fetching ─── */
+  const fetchNotifications = useCallback(async () => {
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50)
+    setNotifications(data || [])
+  }, [])
+
   const fetchAll = async () => {
     setLoading(true)
     const [co, dep, crs, les, tm] = await Promise.all([
@@ -1076,7 +1270,55 @@ export default function Home() {
 
   useEffect(() => {
     fetchAll()
-  }, [])
+    fetchNotifications()
+  }, [fetchNotifications])
+
+  /* ─── mark notification as read ─── */
+  const markNotificationRead = async (notifId) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notifId ? { ...n, is_read: true } : n)),
+    )
+    await supabase.from('notifications').update({ is_read: true }).eq('id', notifId)
+  }
+
+  /* ─── send assignment notification (email + in-app) ─── */
+  const sendAssignmentNotification = async (teamMemberId, lessonTitle, courseId) => {
+    const member = teamMembers.find((t) => t.id === teamMemberId)
+    if (!member) return
+
+    /* resolve course → department → company names for the email */
+    const course = courses.find((c) => c.id === courseId)
+    const dept = course ? departments.find((d) => d.id === course.department_id) : null
+    const company = dept ? companies.find((co) => co.id === dept.company_id) : null
+
+    const message = `You were assigned "${lessonTitle}" in ${course?.name || 'a course'}${company ? ` (${company.name})` : ''}`
+
+    /* create in-app notification */
+    const { data: notifData } = await supabase.from('notifications').insert({
+      team_member_id: teamMemberId,
+      message,
+      is_read: false,
+    }).select()
+
+    if (notifData) {
+      setNotifications((prev) => [...notifData, ...prev])
+    }
+
+    /* send email (fire-and-forget, don't block UI) */
+    if (member.email) {
+      fetch('/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamMemberEmail: member.email,
+          teamMemberName: member.name,
+          lessonTitle,
+          courseName: course?.name || '',
+          companyName: company?.name || '',
+        }),
+      }).catch((err) => console.error('Email notification failed:', err))
+    }
+  }
 
   /* ─── expand / collapse helpers ─── */
   const toggle = (level, id) =>
@@ -1130,6 +1372,30 @@ export default function Home() {
     if (error) {
       console.error('Toggle question failed:', error)
       fetchAll()
+    }
+  }
+
+  /* ─── reassign handler ─── */
+  const reassignHandler = async (lessonId, newMemberId, oldMemberId, lessonTitle, courseId) => {
+    /* optimistic update */
+    setLessons((prev) =>
+      prev.map((l) => (l.id === lessonId ? { ...l, assigned_to: newMemberId } : l)),
+    )
+
+    const { error } = await supabase
+      .from('lessons')
+      .update({ assigned_to: newMemberId })
+      .eq('id', lessonId)
+
+    if (error) {
+      console.error('Reassign failed:', error)
+      fetchAll()
+      return
+    }
+
+    /* send notification if assigned to someone new */
+    if (newMemberId && newMemberId !== oldMemberId) {
+      sendAssignmentNotification(newMemberId, lessonTitle, courseId)
     }
   }
 
@@ -1204,7 +1470,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {[
               { type: 'company', label: 'Company' },
               { type: 'department', label: 'Department' },
@@ -1221,6 +1487,29 @@ export default function Home() {
                 {b.label}
               </button>
             ))}
+
+            {/* ── Bell Icon ── */}
+            <div className="relative ml-1">
+              <button
+                onClick={() => setShowNotifications((v) => !v)}
+                className="relative flex items-center justify-center w-9 h-9 rounded-lg bg-zinc-800/60 hover:bg-zinc-700/60 text-zinc-400 hover:text-purple-300 border border-zinc-700/40 transition-colors cursor-pointer"
+                title="Notifications"
+              >
+                <BellIcon size={18} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-purple-600 text-white text-[10px] font-bold rounded-full px-1 ring-2 ring-[#09071a]">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {showNotifications && (
+                <NotificationDropdown
+                  notifications={notifications}
+                  onMarkRead={markNotificationRead}
+                  onClose={() => setShowNotifications(false)}
+                />
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -1385,11 +1674,12 @@ export default function Home() {
                                                         isExpanded={!!exp.lessons[lesson.id]}
                                                         onToggleExpand={(id) => toggle('lessons', id)}
                                                         onSaved={updateLessonLocally}
+                                                        onReassign={reassignHandler}
                                                       />
                                                     ))}
                                                   </tbody>
                                                 </table>
-                                              </div>
+        </div>
                                             )}
                                           </div>
                                         )}
@@ -1428,6 +1718,7 @@ export default function Home() {
             teamMembers={teamMembers}
             preselect={modal.parentId}
             onDone={modalDone}
+            onAssigned={sendAssignmentNotification}
           />
         )}
         {modal?.type === 'team' && <AddTeamMemberForm onDone={modalDone} />}
