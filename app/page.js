@@ -1058,6 +1058,302 @@ function VideoUpload({ lessonId, videoUrl, onSaved }) {
 }
 
 /* ═══════════════════════════════════════════════════
+   FILES / ATTACHMENTS  —  JSON in lesson_files
+   Upload to Supabase Storage "lesson-files" bucket
+   ═══════════════════════════════════════════════════ */
+
+function FileIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+      <polyline points="14 2 14 8 20 8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+function isImageFile(filename) {
+  if (!filename) return false
+  return /\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)$/i.test(filename)
+}
+
+function FilesManager({ lessonId, initialFiles, onSaved }) {
+  const [files, setFiles] = useState(() => {
+    try {
+      if (!initialFiles) return []
+      const parsed = typeof initialFiles === 'string' ? JSON.parse(initialFiles) : initialFiles
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
+  })
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [editingNote, setEditingNote] = useState(null) // file index being edited
+  const [noteValue, setNoteValue] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef(null)
+  const intervalRef = useRef(null)
+  const saveTimerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [])
+
+  /* persist files JSON to Supabase */
+  const saveFiles = useCallback(async (updated) => {
+    const json = JSON.stringify(updated)
+    const { error } = await supabase
+      .from('lessons')
+      .update({ lesson_files: json })
+      .eq('id', lessonId)
+    if (error) console.error('Failed to save lesson files:', error)
+    if (onSaved) onSaved(lessonId, 'lesson_files', json)
+  }, [lessonId, onSaved])
+
+  /* upload one or more files */
+  const handleUpload = async (fileList) => {
+    if (!fileList || fileList.length === 0) return
+    setUploading(true)
+    setUploadProgress(0)
+
+    const filesToUpload = Array.from(fileList)
+    const totalFiles = filesToUpload.length
+    let completed = 0
+
+    intervalRef.current = setInterval(() => {
+      setUploadProgress((p) => {
+        const target = ((completed / totalFiles) * 100) + ((1 / totalFiles) * 80)
+        if (p >= target) { clearInterval(intervalRef.current); return p }
+        return p + Math.random() * 8
+      })
+    }, 200)
+
+    const newFiles = []
+
+    for (const file of filesToUpload) {
+      const ext = file.name.split('.').pop()
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const filePath = `${lessonId}/${Date.now()}_${safeName}`
+
+      const { error } = await supabase.storage
+        .from('lesson-files')
+        .upload(filePath, file, { upsert: true })
+
+      if (error) {
+        console.error('File upload failed:', file.name, error)
+        completed++
+        continue
+      }
+
+      const { data: urlData } = supabase.storage.from('lesson-files').getPublicUrl(filePath)
+
+      newFiles.push({
+        filename: file.name,
+        url: urlData.publicUrl,
+        storagePath: filePath,
+        size: file.size,
+        type: file.type,
+        note: '',
+        uploadedAt: new Date().toISOString(),
+      })
+      completed++
+      setUploadProgress((completed / totalFiles) * 100)
+    }
+
+    clearInterval(intervalRef.current)
+    setUploadProgress(100)
+
+    const updated = [...files, ...newFiles]
+    setFiles(updated)
+    await saveFiles(updated)
+
+    setUploading(false)
+    setUploadProgress(0)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleDelete = async (index) => {
+    const file = files[index]
+    if (!file) return
+
+    /* remove from storage */
+    if (file.storagePath) {
+      await supabase.storage.from('lesson-files').remove([file.storagePath])
+    } else if (file.url) {
+      const marker = '/storage/v1/object/public/lesson-files/'
+      const idx = file.url.indexOf(marker)
+      if (idx !== -1) {
+        const path = decodeURIComponent(file.url.slice(idx + marker.length))
+        await supabase.storage.from('lesson-files').remove([path])
+      }
+    }
+
+    const updated = files.filter((_, i) => i !== index)
+    setFiles(updated)
+    await saveFiles(updated)
+  }
+
+  const saveNote = async (index) => {
+    const updated = files.map((f, i) => (i === index ? { ...f, note: noteValue } : f))
+    setFiles(updated)
+    setEditingNote(null)
+    await saveFiles(updated)
+  }
+
+  /* drag & drop handlers */
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true) }
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false) }
+  const handleDrop = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files)
+    }
+  }
+
+  return (
+    <div>
+      <SectionHeading icon="📎" title="Files & Attachments">
+        <span className="text-xs text-zinc-500">{files.length} file{files.length !== 1 ? 's' : ''}</span>
+      </SectionHeading>
+
+      {/* Upload zone */}
+      <div
+        className={`border border-dashed rounded-xl px-6 py-6 w-full max-w-3xl transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 ${
+          dragOver
+            ? 'border-purple-400 bg-purple-900/20'
+            : 'border-purple-700/40 bg-[#13102a] hover:border-purple-500/60 hover:bg-purple-900/10'
+        } ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => !uploading && fileInputRef.current?.click()}
+      >
+        <UploadIcon size={24} />
+        <p className="text-sm text-zinc-400">
+          {uploading ? 'Uploading…' : dragOver ? 'Drop files here' : 'Click or drag & drop files here'}
+        </p>
+        <p className="text-[11px] text-zinc-600">Images, PDFs, Word docs, screenshots, etc. — Multiple files allowed</p>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => e.target.files && handleUpload(e.target.files)}
+      />
+
+      {/* Upload progress */}
+      {uploading && (
+        <div className="max-w-3xl mt-3">
+          <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${Math.round(uploadProgress)}%` }}
+            />
+          </div>
+          <p className="text-xs text-zinc-500 mt-1">{Math.round(uploadProgress)}% uploaded</p>
+        </div>
+      )}
+
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4 max-w-3xl">
+          {files.map((file, idx) => (
+            <div key={idx} className="bg-[#13102a] border border-purple-900/30 rounded-xl overflow-hidden group">
+              {/* Thumbnail / icon */}
+              <div className="h-28 bg-[#0b091a] flex items-center justify-center overflow-hidden">
+                {isImageFile(file.filename) ? (
+                  <img
+                    src={file.url}
+                    alt={file.filename}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-1.5 text-zinc-500">
+                    <FileIcon size={32} />
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-600">
+                      {file.filename?.split('.').pop() || 'file'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Info */}
+              <div className="p-3 space-y-2">
+                <p className="text-xs text-zinc-200 truncate font-medium" title={file.filename}>
+                  {file.filename}
+                </p>
+                <p className="text-[10px] text-zinc-500">
+                  {formatFileSize(file.size)}
+                  {file.uploadedAt && ` · ${new Date(file.uploadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                </p>
+
+                {/* Note */}
+                {editingNote === idx ? (
+                  <div className="flex gap-1">
+                    <input
+                      className="flex-1 bg-[#0e0b1a] border border-purple-900/40 rounded px-2 py-1 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                      value={noteValue}
+                      onChange={(e) => setNoteValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveNote(idx); if (e.key === 'Escape') setEditingNote(null) }}
+                      placeholder="Add a note…"
+                      autoFocus
+                    />
+                    <button onClick={() => saveNote(idx)} className="text-emerald-400 hover:text-emerald-300 text-[11px] cursor-pointer">✓</button>
+                    <button onClick={() => setEditingNote(null)} className="text-zinc-500 hover:text-zinc-300 text-[11px] cursor-pointer">✕</button>
+                  </div>
+                ) : (
+                  <p
+                    className="text-[11px] text-zinc-500 truncate cursor-pointer hover:text-purple-300 transition-colors"
+                    onClick={() => { setEditingNote(idx); setNoteValue(file.note || '') }}
+                    title={file.note || 'Click to add note'}
+                  >
+                    {file.note || '+ Add note'}
+                  </p>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-1">
+                  <a
+                    href={file.url}
+            target="_blank"
+            rel="noopener noreferrer"
+                    download={file.filename}
+                    className="text-[11px] text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <DownloadIcon size={11} /> Download
+                  </a>
+                  <button
+                    onClick={() => handleDelete(idx)}
+                    className="text-[11px] text-zinc-600 hover:text-red-400 transition-colors cursor-pointer ml-auto flex items-center gap-1"
+                  >
+                    <TrashIcon size={11} /> Delete
+                  </button>
+        </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
    QUIZ BUILDER  —  JSON in quiz_content
    Supports: MC, TF, YN, SA question types
    Tabs: Create, Paste, Download
@@ -1901,23 +2197,62 @@ function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
    ═══════════════════════════════════════════════════ */
 
 function LessonDetail({ lesson, onSaved }) {
+  const [detailTab, setDetailTab] = useState('script')
+  const tabs = [
+    { key: 'script', label: '📝 Script' },
+    { key: 'video', label: '🎬 Video' },
+    { key: 'quiz', label: '❓ Quiz' },
+    { key: 'files', label: '📎 Files' },
+  ]
+  const dtCls = (key) =>
+    `px-4 py-2 text-xs font-medium rounded-t-lg transition-colors cursor-pointer ${
+      detailTab === key
+        ? 'bg-[#0b091a] text-purple-300 border border-purple-800/50 border-b-0'
+        : 'text-zinc-500 hover:text-zinc-300 hover:bg-purple-900/10'
+    }`
+
   return (
-    <div className="bg-[#0b091a] border-t border-purple-900/30 px-6 py-5 space-y-8">
-      <ScriptEditor
-        lessonId={lesson.id}
-        initialContent={lesson.script_content || ''}
-        onSaved={onSaved}
-      />
-      <VideoUpload
-        lessonId={lesson.id}
-        videoUrl={lesson.video_url}
-        onSaved={onSaved}
-      />
-      <QuizBuilder
-        lessonId={lesson.id}
-        initialQuiz={lesson.quiz_content}
-        onSaved={onSaved}
-      />
+    <div className="bg-[#0b091a] border-t border-purple-900/30">
+      {/* Tab bar */}
+      <div className="flex gap-0.5 px-4 pt-3 border-b border-purple-900/30">
+        {tabs.map((t) => (
+          <button key={t.key} onClick={() => setDetailTab(t.key)} className={dtCls(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="px-6 py-5">
+        {detailTab === 'script' && (
+          <ScriptEditor
+            lessonId={lesson.id}
+            initialContent={lesson.script_content || ''}
+            onSaved={onSaved}
+          />
+        )}
+        {detailTab === 'video' && (
+          <VideoUpload
+            lessonId={lesson.id}
+            videoUrl={lesson.video_url}
+            onSaved={onSaved}
+          />
+        )}
+        {detailTab === 'quiz' && (
+          <QuizBuilder
+            lessonId={lesson.id}
+            initialQuiz={lesson.quiz_content}
+            onSaved={onSaved}
+          />
+        )}
+        {detailTab === 'files' && (
+          <FilesManager
+            lessonId={lesson.id}
+            initialFiles={lesson.lesson_files}
+            onSaved={onSaved}
+          />
+        )}
+      </div>
     </div>
   )
 }
@@ -1965,6 +2300,16 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
             })() && (
               <span className="text-[10px] bg-purple-900/40 text-purple-300 ring-1 ring-purple-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Has quiz">
                 Q
+              </span>
+            )}
+            {lesson.lesson_files && (() => {
+              try {
+                const f = typeof lesson.lesson_files === 'string' ? JSON.parse(lesson.lesson_files) : lesson.lesson_files
+                return Array.isArray(f) && f.length > 0
+              } catch { return false }
+            })() && (
+              <span className="text-[10px] bg-cyan-900/40 text-cyan-300 ring-1 ring-cyan-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Has files">
+                📎
               </span>
             )}
           </div>
