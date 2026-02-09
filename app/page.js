@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 /* ═══════════════════════════════════════════════════
@@ -43,6 +43,10 @@ const btnPrimary =
   'bg-purple-600 hover:bg-purple-500 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors cursor-pointer'
 const btnGhost =
   'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-4 py-2 text-sm font-medium transition-colors cursor-pointer'
+const btnDanger =
+  'bg-red-900/40 hover:bg-red-800/60 text-red-300 ring-1 ring-red-700/40 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer'
+const btnSmPurple =
+  'bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-700/40 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer'
 
 /* ═══════════════════════════════════════════════════
    ICONS (inline SVGs to avoid extra deps)
@@ -78,6 +82,14 @@ function TrashIcon({ size = 14 }) {
   )
 }
 
+function UploadIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+    </svg>
+  )
+}
+
 function DeleteButton({ onClick, title }) {
   return (
     <span
@@ -106,6 +118,22 @@ function StatusBadge({ status, onClick }) {
     >
       {status}
     </button>
+  )
+}
+
+function SaveIndicator({ status }) {
+  if (status === 'saving') return <span className="text-xs text-zinc-500 animate-pulse">Saving…</span>
+  if (status === 'saved') return <span className="text-xs text-emerald-400">✓ Saved</span>
+  return null
+}
+
+function SectionHeading({ icon, title, children }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <span className="text-base">{icon}</span>
+      <h3 className="text-sm font-semibold text-purple-300">{title}</h3>
+      <div className="ml-auto flex items-center gap-2">{children}</div>
+    </div>
   )
 }
 
@@ -303,7 +331,6 @@ function AddCourseForm({ companies, departments, preselect, onDone }) {
   const [deptId, setDeptId] = useState(preselect || '')
   const [saving, setSaving] = useState(false)
 
-  /* build grouped options: Company > Department */
   const grouped = useMemo(() => {
     return companies.map((c) => ({
       company: c,
@@ -368,7 +395,6 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
   const [questionNote, setQuestionNote] = useState('')
   const [saving, setSaving] = useState(false)
 
-  /* build grouped options: Company > Department > Course */
   const grouped = useMemo(() => {
     return companies.flatMap((co) =>
       departments
@@ -518,57 +544,468 @@ function AddTeamMemberForm({ onDone }) {
 }
 
 /* ═══════════════════════════════════════════════════
-   LESSON ROW
+   SCRIPT EDITOR  —  debounced auto-save
    ═══════════════════════════════════════════════════ */
 
-function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete }) {
+function ScriptEditor({ lessonId, initialContent, onSaved }) {
+  const [content, setContent] = useState(initialContent || '')
+  const [saveStatus, setSaveStatus] = useState(null) // null | 'saving' | 'saved'
+  const timerRef = useRef(null)
+
+  /* clean up on unmount */
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const handleChange = (value) => {
+    setContent(value)
+    setSaveStatus(null)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(async () => {
+      setSaveStatus('saving')
+      const { error } = await supabase
+        .from('lessons')
+        .update({ script_content: value })
+        .eq('id', lessonId)
+      if (error) {
+        console.error('Script save failed:', error)
+        setSaveStatus(null)
+        return
+      }
+      setSaveStatus('saved')
+      if (onSaved) onSaved(lessonId, 'script_content', value)
+      setTimeout(() => setSaveStatus((s) => (s === 'saved' ? null : s)), 2500)
+    }, 1000)
+  }
+
+  return (
+    <div>
+      <SectionHeading icon="📝" title="Script">
+        <SaveIndicator status={saveStatus} />
+      </SectionHeading>
+      <textarea
+        className={inputCls + ' resize-y min-h-[120px] font-mono text-[13px] leading-relaxed'}
+        rows={8}
+        value={content}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder="Paste or write the lesson script here…"
+      />
+      <p className="text-[11px] text-zinc-600 mt-1.5">Auto-saves 1 second after you stop typing</p>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   VIDEO UPLOAD  —  Supabase Storage
+   ═══════════════════════════════════════════════════ */
+
+function VideoUpload({ lessonId, videoUrl, onSaved }) {
+  const [url, setUrl] = useState(videoUrl || null)
+  const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const fileRef = useRef(null)
+  const intervalRef = useRef(null)
+
+  /* sync prop when parent updates */
+  useEffect(() => {
+    setUrl(videoUrl || null)
+  }, [videoUrl])
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
+
+  const handleUpload = async (file) => {
+    if (!file) return
+    setUploading(true)
+    setProgress(0)
+
+    /* simulate progress while real upload runs */
+    intervalRef.current = setInterval(() => {
+      setProgress((p) => {
+        if (p >= 90) {
+          clearInterval(intervalRef.current)
+          return p
+        }
+        return p + Math.random() * 12
+      })
+    }, 250)
+
+    const ext = file.name.split('.').pop()
+    const filePath = `${lessonId}/${Date.now()}.${ext}`
+
+    const { error } = await supabase.storage
+      .from('videos')
+      .upload(filePath, file, { upsert: true })
+
+    clearInterval(intervalRef.current)
+
+    if (error) {
+      console.error('Video upload failed:', error)
+      setUploading(false)
+      setProgress(0)
+      return
+    }
+
+    setProgress(100)
+
+    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filePath)
+    const publicUrl = urlData.publicUrl
+
+    await supabase.from('lessons').update({ video_url: publicUrl }).eq('id', lessonId)
+
+    setUrl(publicUrl)
+    setUploading(false)
+    if (onSaved) onSaved(lessonId, 'video_url', publicUrl)
+
+    /* reset file input */
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleDelete = async () => {
+    if (!url) return
+    /* extract storage path from public URL */
+    const marker = '/storage/v1/object/public/videos/'
+    const idx = url.indexOf(marker)
+    if (idx !== -1) {
+      const path = decodeURIComponent(url.slice(idx + marker.length))
+      await supabase.storage.from('videos').remove([path])
+    }
+    await supabase.from('lessons').update({ video_url: null }).eq('id', lessonId)
+    setUrl(null)
+    if (onSaved) onSaved(lessonId, 'video_url', null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  return (
+    <div>
+      <SectionHeading icon="🎬" title="Video" />
+
+      {url ? (
+        <div className="space-y-3">
+          <video
+            src={url}
+            controls
+            className="w-full max-w-2xl rounded-lg border border-purple-900/30 bg-black"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => fileRef.current?.click()}
+              className={btnSmPurple}
+            >
+              Replace Video
+            </button>
+            <button onClick={handleDelete} className={btnDanger}>
+              Delete Video
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-2 bg-[#13102a] border border-dashed border-purple-700/40 rounded-xl px-6 py-8 w-full max-w-2xl hover:border-purple-500/60 hover:bg-purple-900/10 transition-colors cursor-pointer text-sm text-zinc-400 justify-center disabled:opacity-50"
+          >
+            <UploadIcon size={20} />
+            {uploading ? 'Uploading…' : 'Click to upload a video file'}
+          </button>
+
+          {uploading && (
+            <div className="max-w-2xl">
+              <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round(progress)}%` }}
+                />
+              </div>
+              <p className="text-xs text-zinc-500 mt-1">{Math.round(progress)}% uploaded</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="video/*"
+        hidden
+        onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
+      />
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   QUIZ BUILDER  —  JSON in quiz_content
+   ═══════════════════════════════════════════════════ */
+
+const EMPTY_QUESTION = { question: '', options: ['', '', '', ''], correct: 0 }
+
+function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
+  const [questions, setQuestions] = useState(() => {
+    try {
+      const parsed = typeof initialQuiz === 'string' ? JSON.parse(initialQuiz) : initialQuiz
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
+  const [saveStatus, setSaveStatus] = useState(null)
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  /* debounced save */
+  const save = (qs) => {
+    setSaveStatus(null)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(async () => {
+      setSaveStatus('saving')
+      const json = JSON.stringify(qs)
+      const { error } = await supabase
+        .from('lessons')
+        .update({ quiz_content: json })
+        .eq('id', lessonId)
+      if (error) {
+        console.error('Quiz save failed:', error)
+        setSaveStatus(null)
+        return
+      }
+      setSaveStatus('saved')
+      if (onSaved) onSaved(lessonId, 'quiz_content', json)
+      setTimeout(() => setSaveStatus((s) => (s === 'saved' ? null : s)), 2500)
+    }, 1000)
+  }
+
+  const addQuestion = () => {
+    const updated = [...questions, { ...EMPTY_QUESTION, options: ['', '', '', ''] }]
+    setQuestions(updated)
+    save(updated)
+  }
+
+  const removeQuestion = (index) => {
+    const updated = questions.filter((_, i) => i !== index)
+    setQuestions(updated)
+    save(updated)
+  }
+
+  const updateQuestion = (index, field, value) => {
+    const updated = questions.map((q, i) => {
+      if (i !== index) return q
+      if (field === 'question') return { ...q, question: value }
+      if (field === 'correct') return { ...q, correct: value }
+      if (field.startsWith('option_')) {
+        const optIdx = parseInt(field.split('_')[1])
+        const opts = [...q.options]
+        opts[optIdx] = value
+        return { ...q, options: opts }
+      }
+      return q
+    })
+    setQuestions(updated)
+    save(updated)
+  }
+
+  return (
+    <div>
+      <SectionHeading icon="❓" title="Quiz Builder">
+        <SaveIndicator status={saveStatus} />
+        <button onClick={addQuestion} className={btnSmPurple + ' flex items-center gap-1'}>
+          <PlusIcon size={12} /> Add Question
+        </button>
+      </SectionHeading>
+
+      {questions.length === 0 && (
+        <p className="text-xs text-zinc-600 italic py-2">No quiz questions yet — click "Add Question" to start</p>
+      )}
+
+      <div className="space-y-4">
+        {questions.map((q, qi) => (
+          <div key={qi} className="bg-[#0e0b1a] border border-purple-900/30 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <span className="text-xs font-bold text-purple-400 bg-purple-900/30 rounded-md px-2 py-0.5 flex-shrink-0 mt-1">
+                Q{qi + 1}
+              </span>
+              <input
+                className={inputCls + ' flex-1'}
+                value={q.question}
+                onChange={(e) => updateQuestion(qi, 'question', e.target.value)}
+                placeholder="Enter your question…"
+              />
+              <button
+                onClick={() => removeQuestion(qi)}
+                className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0 mt-1"
+                title="Remove question"
+              >
+                <TrashIcon size={16} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 ml-9">
+              {q.options.map((opt, oi) => (
+                <div key={oi} className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateQuestion(qi, 'correct', oi)}
+                    className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all ring-1 ${
+                      q.correct === oi
+                        ? 'bg-emerald-600 text-white ring-emerald-500'
+                        : 'bg-zinc-800 text-zinc-500 ring-zinc-700 hover:ring-purple-600'
+                    }`}
+                    title={q.correct === oi ? 'Correct answer' : 'Mark as correct'}
+                  >
+                    {String.fromCharCode(65 + oi)}
+                  </button>
+                  <input
+                    className={inputCls + ' flex-1 text-xs'}
+                    value={opt}
+                    onChange={(e) => updateQuestion(qi, `option_${oi}`, e.target.value)}
+                    placeholder={`Option ${String.fromCharCode(65 + oi)}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-zinc-600 mt-2 ml-9">
+              Click a letter circle to mark the correct answer.
+              {q.correct !== undefined && (
+                <span className="text-emerald-500/70 ml-1">
+                  Correct: {String.fromCharCode(65 + q.correct)}
+                </span>
+              )}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   LESSON DETAIL PANEL  —  shown when lesson is expanded
+   ═══════════════════════════════════════════════════ */
+
+function LessonDetail({ lesson, onSaved }) {
+  return (
+    <div className="bg-[#0b091a] border-t border-purple-900/30 px-6 py-5 space-y-8">
+      <ScriptEditor
+        lessonId={lesson.id}
+        initialContent={lesson.script_content || ''}
+        onSaved={onSaved}
+      />
+      <VideoUpload
+        lessonId={lesson.id}
+        videoUrl={lesson.video_url}
+        onSaved={onSaved}
+      />
+      <QuizBuilder
+        lessonId={lesson.id}
+        initialQuiz={lesson.quiz_content}
+        onSaved={onSaved}
+      />
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   LESSON ROW  —  expandable with detail panel
+   ═══════════════════════════════════════════════════ */
+
+function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete, isExpanded, onToggleExpand, onSaved }) {
   const member = teamMembers.find((t) => t.id === lesson.assigned_to)
   const overdue = isOverdue(lesson)
 
   return (
-    <tr className={`border-b border-purple-900/20 hover:bg-purple-900/10 transition-colors ${overdue ? 'bg-red-950/20' : ''}`}>
-      <td className="py-2.5 px-3 text-sm text-zinc-100 font-medium">
-        <div className="flex items-center gap-2">
-          {lesson.title}
-          {overdue && <span className="text-[10px] bg-red-900/60 text-red-300 ring-1 ring-red-700/60 rounded-full px-1.5 py-0.5 font-medium">OVERDUE</span>}
-        </div>
-      </td>
-      <td className="py-2.5 px-3 text-sm text-zinc-400">{member?.name || '—'}</td>
-      <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_assigned)}</td>
-      <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.due_date)}</td>
-      <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_completed)}</td>
-      <td className="py-2.5 px-3">
-        <StatusBadge status={lesson.script_status} onClick={() => onCycleStatus(lesson.id, 'script_status', lesson.script_status)} />
-      </td>
-      <td className="py-2.5 px-3">
-        <StatusBadge status={lesson.video_status} onClick={() => onCycleStatus(lesson.id, 'video_status', lesson.video_status)} />
-      </td>
-      <td className="py-2.5 px-3 text-center">
-        <button
-          onClick={() => onToggleQuestion(lesson.id, !lesson.has_question)}
-          className={`w-6 h-6 rounded-md text-xs font-bold cursor-pointer transition-colors ${
-            lesson.has_question
-              ? 'bg-rose-900/50 text-rose-300 ring-1 ring-rose-700/50'
-              : 'bg-zinc-800 text-zinc-600 ring-1 ring-zinc-700/50'
-          }`}
-          title={lesson.has_question ? (lesson.question_note || 'Has question') : 'No question'}
-        >
-          ?
-        </button>
-      </td>
-      <td className="py-2.5 px-3 text-sm text-zinc-500 max-w-[180px] truncate" title={lesson.question_note || ''}>
-        {lesson.question_note || '—'}
-      </td>
-      <td className="py-2.5 px-3 text-center">
-        <button
-          onClick={() => onDelete(lesson.id, lesson.title)}
-          className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer"
-          title="Delete lesson"
-        >
-          <TrashIcon />
-        </button>
-      </td>
-    </tr>
+    <>
+      <tr className={`border-b border-purple-900/20 hover:bg-purple-900/10 transition-colors ${overdue ? 'bg-red-950/20' : ''} ${isExpanded ? 'bg-purple-900/15 border-b-0' : ''}`}>
+        <td className="py-2.5 px-3 text-sm text-zinc-100 font-medium">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onToggleExpand(lesson.id)}
+              className="flex-shrink-0 text-zinc-500 hover:text-purple-400 transition-colors cursor-pointer"
+              title={isExpanded ? 'Collapse' : 'Expand to edit script, video & quiz'}
+            >
+              <ChevronIcon open={isExpanded} />
+            </button>
+            <span
+              className="cursor-pointer hover:text-purple-300 transition-colors"
+              onClick={() => onToggleExpand(lesson.id)}
+            >
+              {lesson.title}
+            </span>
+            {overdue && (
+              <span className="text-[10px] bg-red-900/60 text-red-300 ring-1 ring-red-700/60 rounded-full px-1.5 py-0.5 font-medium">
+                OVERDUE
+              </span>
+            )}
+            {lesson.video_url && (
+              <span className="text-[10px] bg-blue-900/40 text-blue-300 ring-1 ring-blue-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Has video">
+                🎬
+              </span>
+            )}
+            {lesson.quiz_content && (() => {
+              try {
+                const q = typeof lesson.quiz_content === 'string' ? JSON.parse(lesson.quiz_content) : lesson.quiz_content
+                return Array.isArray(q) && q.length > 0
+              } catch { return false }
+            })() && (
+              <span className="text-[10px] bg-purple-900/40 text-purple-300 ring-1 ring-purple-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Has quiz">
+                Q
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="py-2.5 px-3 text-sm text-zinc-400">{member?.name || '—'}</td>
+        <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_assigned)}</td>
+        <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.due_date)}</td>
+        <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_completed)}</td>
+        <td className="py-2.5 px-3">
+          <StatusBadge status={lesson.script_status} onClick={() => onCycleStatus(lesson.id, 'script_status', lesson.script_status)} />
+        </td>
+        <td className="py-2.5 px-3">
+          <StatusBadge status={lesson.video_status} onClick={() => onCycleStatus(lesson.id, 'video_status', lesson.video_status)} />
+        </td>
+        <td className="py-2.5 px-3 text-center">
+          <button
+            onClick={() => onToggleQuestion(lesson.id, !lesson.has_question)}
+            className={`w-6 h-6 rounded-md text-xs font-bold cursor-pointer transition-colors ${
+              lesson.has_question
+                ? 'bg-rose-900/50 text-rose-300 ring-1 ring-rose-700/50'
+                : 'bg-zinc-800 text-zinc-600 ring-1 ring-zinc-700/50'
+            }`}
+            title={lesson.has_question ? (lesson.question_note || 'Has question') : 'No question'}
+          >
+            ?
+          </button>
+        </td>
+        <td className="py-2.5 px-3 text-sm text-zinc-500 max-w-[180px] truncate" title={lesson.question_note || ''}>
+          {lesson.question_note || '—'}
+        </td>
+        <td className="py-2.5 px-3 text-center">
+          <button
+            onClick={() => onDelete(lesson.id, lesson.title)}
+            className="text-zinc-600 hover:text-red-400 transition-colors cursor-pointer"
+            title="Delete lesson"
+          >
+            <TrashIcon />
+          </button>
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={10} className="p-0">
+            <LessonDetail lesson={lesson} onSaved={onSaved} />
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
@@ -616,8 +1053,8 @@ export default function Home() {
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
-  // expand / collapse  –  { companies: { [id]: bool }, departments: { … }, courses: { … } }
-  const [exp, setExp] = useState({ companies: {}, departments: {}, courses: {} })
+  // expand / collapse  –  { companies: {}, departments: {}, courses: {}, lessons: {} }
+  const [exp, setExp] = useState({ companies: {}, departments: {}, courses: {}, lessons: {} })
 
   /* ─── data fetching ─── */
   const fetchAll = async () => {
@@ -653,29 +1090,31 @@ export default function Home() {
     companies.forEach((x) => (c[x.id] = true))
     departments.forEach((x) => (d[x.id] = true))
     courses.forEach((x) => (cr[x.id] = true))
-    setExp({ companies: c, departments: d, courses: cr })
+    setExp({ companies: c, departments: d, courses: cr, lessons: {} })
   }
 
-  const collapseAll = () => setExp({ companies: {}, departments: {}, courses: {} })
+  const collapseAll = () => setExp({ companies: {}, departments: {}, courses: {}, lessons: {} })
+
+  /* ─── update lesson field locally (for child component saves) ─── */
+  const updateLessonLocally = (lessonId, field, value) => {
+    setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, [field]: value } : l)))
+  }
 
   /* ─── lesson mutations (optimistic) ─── */
   const cycleStatusHandler = async (lessonId, field, current) => {
     const next = cycleStatus(current)
     const updates = { [field]: next }
 
-    // auto-set date_completed when both statuses become Completed
     const lesson = lessons.find((l) => l.id === lessonId)
     if (lesson) {
       const otherField = field === 'script_status' ? 'video_status' : 'script_status'
       if (next === 'Completed' && lesson[otherField] === 'Completed') {
         updates.date_completed = new Date().toISOString().split('T')[0]
       } else if (next !== 'Completed' && lesson.date_completed) {
-        // if un-completing, clear date_completed
         updates.date_completed = null
       }
     }
 
-    // optimistic
     setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, ...updates } : l)))
 
     const { error } = await supabase.from('lessons').update(updates).eq('id', lessonId)
@@ -704,7 +1143,6 @@ export default function Home() {
 
     try {
       if (type === 'company') {
-        // cascade: lessons → courses → departments → company
         const deptIds = departments.filter((d) => d.company_id === id).map((d) => d.id)
         const courseIds = courses.filter((c) => deptIds.includes(c.department_id)).map((c) => c.id)
         if (courseIds.length) await supabase.from('lessons').delete().in('course_id', courseIds)
@@ -712,13 +1150,11 @@ export default function Home() {
         await supabase.from('departments').delete().eq('company_id', id)
         await supabase.from('companies').delete().eq('id', id)
       } else if (type === 'department') {
-        // cascade: lessons → courses → department
         const courseIds = courses.filter((c) => c.department_id === id).map((c) => c.id)
         if (courseIds.length) await supabase.from('lessons').delete().in('course_id', courseIds)
         await supabase.from('courses').delete().eq('department_id', id)
         await supabase.from('departments').delete().eq('id', id)
       } else if (type === 'course') {
-        // cascade: lessons → course
         await supabase.from('lessons').delete().eq('course_id', id)
         await supabase.from('courses').delete().eq('id', id)
       } else if (type === 'lesson') {
@@ -739,7 +1175,6 @@ export default function Home() {
     fetchAll()
   }
 
-  /* ─── modal title map ─── */
   const modalTitles = {
     company: 'Add Company',
     department: 'Add Department',
@@ -769,7 +1204,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* action buttons */}
           <div className="flex flex-wrap gap-2">
             {[
               { type: 'company', label: 'Company' },
@@ -802,10 +1236,8 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {/* Dashboard */}
             <Dashboard lessons={lessons} />
 
-            {/* Toolbar */}
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Catalog</h2>
               <div className="flex gap-2">
@@ -819,7 +1251,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Empty state */}
             {companies.length === 0 && (
               <div className="text-center py-20 text-zinc-600">
                 <p className="text-lg mb-2">No companies yet</p>
@@ -838,7 +1269,6 @@ export default function Home() {
 
                 return (
                   <div key={company.id} className="border border-purple-900/30 rounded-xl overflow-hidden bg-[#0e0c1e]">
-                    {/* Company header */}
                     <button
                       onClick={() => toggle('companies', company.id)}
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-purple-900/10 transition-colors cursor-pointer"
@@ -853,7 +1283,6 @@ export default function Home() {
                       <span className="ml-auto text-xs text-zinc-600">
                         {companyDepts.length} dept{companyDepts.length !== 1 && 's'} · {companyLessons.length} lesson{companyLessons.length !== 1 && 's'}
                       </span>
-                      {/* Contextual + button */}
                       <span
                         onClick={(e) => {
                           e.stopPropagation()
@@ -867,7 +1296,6 @@ export default function Home() {
                       <DeleteButton onClick={() => requestDelete('company', company.id, company.name)} title="Delete company" />
                     </button>
 
-                    {/* Departments */}
                     {companyOpen && (
                       <div className="border-t border-purple-900/20">
                         {companyDepts.length === 0 && (
@@ -881,7 +1309,6 @@ export default function Home() {
 
                           return (
                             <div key={dept.id} className="border-b border-purple-900/10 last:border-b-0">
-                              {/* Department header */}
                               <button
                                 onClick={() => toggle('departments', dept.id)}
                                 className="w-full flex items-center gap-3 px-8 py-2.5 hover:bg-purple-900/10 transition-colors cursor-pointer"
@@ -904,7 +1331,6 @@ export default function Home() {
                                 <DeleteButton onClick={() => requestDelete('department', dept.id, dept.name)} title="Delete department" />
                               </button>
 
-                              {/* Courses */}
                               {deptOpen && (
                                 <div>
                                   {deptCourses.length === 0 && (
@@ -917,7 +1343,6 @@ export default function Home() {
 
                                     return (
                                       <div key={course.id} className="border-t border-purple-900/10">
-                                        {/* Course header */}
                                         <button
                                           onClick={() => toggle('courses', course.id)}
                                           className="w-full flex items-center gap-3 px-14 py-2 hover:bg-purple-900/10 transition-colors cursor-pointer"
@@ -940,14 +1365,13 @@ export default function Home() {
                                           <DeleteButton onClick={() => requestDelete('course', course.id, course.name)} title="Delete course" />
                                         </button>
 
-                                        {/* Lessons table */}
                                         {courseOpen && (
                                           <div className="px-14 pb-3">
                                             {cLessons.length === 0 ? (
                                               <p className="pl-7 py-2 text-xs text-zinc-600 italic">No lessons yet</p>
                                             ) : (
                                               <div className="overflow-x-auto rounded-lg border border-purple-900/20 bg-[#0a0818]">
-                                                <table className="w-full min-w-[820px]">
+                                                <table className="w-full min-w-[860px]">
                                                   <LessonTableHead />
                                                   <tbody>
                                                     {cLessons.map((lesson) => (
@@ -958,6 +1382,9 @@ export default function Home() {
                                                         onCycleStatus={cycleStatusHandler}
                                                         onToggleQuestion={toggleQuestion}
                                                         onDelete={(id, title) => requestDelete('lesson', id, title)}
+                                                        isExpanded={!!exp.lessons[lesson.id]}
+                                                        onToggleExpand={(id) => toggle('lessons', id)}
+                                                        onSaved={updateLessonLocally}
                                                       />
                                                     ))}
                                                   </tbody>
@@ -1006,7 +1433,6 @@ export default function Home() {
         {modal?.type === 'team' && <AddTeamMemberForm onDone={modalDone} />}
       </Modal>
 
-      {/* ── CONFIRM DELETE ── */}
       <ConfirmDialog
         open={!!confirmDelete}
         name={confirmDelete?.name || ''}
