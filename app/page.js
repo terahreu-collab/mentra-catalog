@@ -1104,6 +1104,15 @@ function FilesManager({ lessonId, initialFiles, onSaved }) {
   const intervalRef = useRef(null)
   const saveTimerRef = useRef(null)
 
+  /* sync files state when initialFiles prop changes (e.g. after refresh) */
+  useEffect(() => {
+    try {
+      if (!initialFiles) { setFiles([]); return }
+      const parsed = typeof initialFiles === 'string' ? JSON.parse(initialFiles) : initialFiles
+      setFiles(Array.isArray(parsed) ? parsed : [])
+    } catch { setFiles([]) }
+  }, [initialFiles])
+
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
