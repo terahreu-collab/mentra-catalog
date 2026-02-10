@@ -213,17 +213,20 @@ function InlineEdit({ value, onSave, className = '' }) {
   return (
     <span className="group/edit inline-flex items-center gap-1.5">
       <span className={className}>{value}</span>
-      <button
+      <span
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           e.stopPropagation()
           setDraft(value)
           setEditing(true)
         }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setDraft(value); setEditing(true) } }}
         className="text-zinc-700 opacity-0 group-hover/edit:opacity-100 hover:!text-purple-400 transition-all cursor-pointer"
         title="Edit name"
       >
         <PencilIcon />
-      </button>
+      </span>
     </span>
   )
 }
@@ -1110,13 +1113,12 @@ function FilesManager({ lessonId, initialFiles, onSaved }) {
 
   /* persist files JSON to Supabase */
   const saveFiles = useCallback(async (updated) => {
-    const json = JSON.stringify(updated)
     const { error } = await supabase
       .from('lessons')
-      .update({ lesson_files: json })
+      .update({ lesson_files: updated })
       .eq('id', lessonId)
     if (error) console.error('Failed to save lesson files:', error)
-    if (onSaved) onSaved(lessonId, 'lesson_files', json)
+    if (onSaved) onSaved(lessonId, 'lesson_files', updated)
   }, [lessonId, onSaved])
 
   /* upload one or more files */
