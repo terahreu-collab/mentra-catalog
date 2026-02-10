@@ -11,7 +11,7 @@ export async function POST(request) {
       return Response.json({ error: 'teamMemberEmail is required' }, { status: 400 })
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://mentra-catalog.vercel.app'
 
     const { data, error } = await resend.emails.send({
       from: 'Mentra Video Catalog <notifications@mentra-ai.ai>',
