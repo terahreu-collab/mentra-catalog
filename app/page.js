@@ -778,10 +778,11 @@ function AddCourseForm({ companies, departments, preselect, onDone }) {
    FORM: ADD LESSON
    ═══════════════════════════════════════════════════ */
 
-function AddLessonForm({ companies, departments, courses, teamMembers, preselect, onDone, onAssigned }) {
+function AddLessonForm({ companies, departments, courses, teamMembers, creators, preselect, onDone, onAssigned }) {
   const [title, setTitle] = useState('')
   const [courseId, setCourseId] = useState(preselect || '')
   const [assignedTo, setAssignedTo] = useState('')
+  const [createdBy, setCreatedBy] = useState('')
   const [dateAssigned, setDateAssigned] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [scriptStatus, setScriptStatus] = useState('Not Started')
@@ -826,6 +827,7 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
       title: title.trim(),
       course_id: courseId,
       assigned_to: assignedTo || null,
+      created_by: createdBy || null,
       date_assigned: dateAssigned || null,
       due_date: dueDate || null,
       date_completed: dateCompleted || null,
@@ -864,6 +866,15 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Introduction to Safety"
         />
+      </div>
+      <div>
+        <label className={labelCls}>Created By</label>
+        <select className={inputCls} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)}>
+          <option value="">None</option>
+          {creators.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
       {/* ── Status dropdowns (always visible) ── */}
       <div className="grid grid-cols-2 gap-3">
@@ -987,6 +998,53 @@ function AddTeamMemberForm({ onDone }) {
       <div className="flex justify-end gap-2 pt-2">
         <button type="submit" disabled={saving} className={btnPrimary}>
           {saving ? 'Saving…' : 'Add Team Member'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   FORM: ADD CREATOR
+   ═══════════════════════════════════════════════════ */
+
+function AddCreatorForm({ onDone }) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    setSaving(true)
+    const { error } = await supabase.from('creators').insert({
+      name: name.trim(),
+      email: email.trim() || null,
+    })
+    setSaving(false)
+    if (error) return console.error(error)
+    onDone()
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div>
+        <label className={labelCls}>Name</label>
+        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Assistant name" />
+      </div>
+      <div>
+        <label className={labelCls}>Email (optional)</label>
+        <input
+          type="email"
+          className={inputCls}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="assistant@example.com"
+        />
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="submit" disabled={saving} className={btnPrimary}>
+          {saving ? 'Saving…' : 'Add Creator'}
         </button>
       </div>
     </form>
@@ -2713,7 +2771,7 @@ function LessonDetail({ lesson, onSaved }) {
    LESSON ROW  —  expandable with detail panel
    ═══════════════════════════════════════════════════ */
 
-function LessonRow({ lesson, teamMembers, onCycleStatus, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename, onUpdateField }) {
+function LessonRow({ lesson, teamMembers, creators, onCycleStatus, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename, onUpdateField }) {
   const member = teamMembers.find((t) => t.id === lesson.assigned_to)
   const overdue = isOverdue(lesson)
   const [editingDate, setEditingDate] = useState(null) // 'date_assigned' | 'due_date' | null
@@ -2880,6 +2938,20 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onDelete, isExpanded, o
             </div>
           </div>
         </td>
+        {/* Created By */}
+        <td className="py-2.5 px-3">
+          <select
+            className="bg-transparent text-sm text-zinc-300 hover:text-zinc-100 focus:text-zinc-100 border-none outline-none cursor-pointer appearance-none pr-2 focus:ring-1 focus:ring-purple-500/40 rounded py-0.5"
+            value={lesson.created_by || ''}
+            onChange={(e) => onUpdateField(lesson.id, 'created_by', e.target.value || null)}
+            title="Select creator"
+          >
+            <option value="">—</option>
+            {creators.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </td>
         {/* Editable Date Assigned */}
         <td className="py-2.5 px-3 text-sm whitespace-nowrap">
           {editingDate === 'date_assigned' ? (
@@ -2962,7 +3034,7 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onDelete, isExpanded, o
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={9} className="p-0">
+          <td colSpan={10} className="p-0">
             <LessonDetail lesson={lesson} onSaved={onSaved} />
           </td>
         </tr>
@@ -2982,6 +3054,7 @@ function LessonTableHead() {
       <tr className="border-b border-purple-900/30">
         <th className={th}>Title</th>
         <th className={th}>Assigned To</th>
+        <th className={th}>Created By</th>
         <th className={th}>Assigned</th>
         <th className={th}>Due</th>
         <th className={th}>Completed</th>
@@ -3005,6 +3078,7 @@ export default function Home() {
   const [courses, setCourses] = useState([])
   const [lessons, setLessons] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
+  const [creators, setCreators] = useState([])
   const [loading, setLoading] = useState(true)
 
   // modal: null | { type: 'company'|'department'|'course'|'lesson'|'team', parentId?: string }
@@ -3047,18 +3121,20 @@ export default function Home() {
 
   const fetchAll = async () => {
     setLoading(true)
-    const [co, dep, crs, les, tm] = await Promise.all([
+    const [co, dep, crs, les, tm, cr] = await Promise.all([
       supabase.from('companies').select('*').order('name'),
       supabase.from('departments').select('*').order('name'),
       supabase.from('courses').select('*').order('name'),
       supabase.from('lessons').select('*').order('title'),
       supabase.from('team_members').select('*').order('name'),
+      supabase.from('creators').select('*').order('name'),
     ])
     setCompanies(co.data || [])
     setDepartments(dep.data || [])
     setCourses(crs.data || [])
     setLessons(les.data || [])
     setTeamMembers(tm.data || [])
+    setCreators(cr.data || [])
     setLoading(false)
   }
 
@@ -3349,6 +3425,7 @@ export default function Home() {
     course: 'Add Course',
     lesson: 'Add Lesson',
     team: 'Add Team Member',
+    creator: 'Add Creator',
     'manage-team': 'Manage Team',
   }
 
@@ -3391,6 +3468,7 @@ export default function Home() {
               { type: 'course', label: 'Course' },
               { type: 'lesson', label: 'Lesson' },
               { type: 'team', label: 'Team Member' },
+              { type: 'creator', label: 'Creator' },
             ].map((b) => (
               <button
                 key={b.type}
@@ -3624,6 +3702,7 @@ export default function Home() {
                                                         key={lesson.id}
                                                         lesson={lesson}
                                                         teamMembers={teamMembers}
+                                                        creators={creators}
                                                         onCycleStatus={cycleStatusHandler}
                                                         onDelete={(id, title) => requestDelete('lesson', id, title)}
                                                         isExpanded={!!exp.lessons[lesson.id]}
@@ -3673,12 +3752,14 @@ export default function Home() {
             departments={departments}
             courses={courses}
             teamMembers={teamMembers}
+            creators={creators}
             preselect={modal.parentId}
             onDone={modalDone}
             onAssigned={sendAssignmentNotification}
           />
         )}
         {modal?.type === 'team' && <AddTeamMemberForm onDone={modalDone} />}
+        {modal?.type === 'creator' && <AddCreatorForm onDone={modalDone} />}
         {modal?.type === 'manage-team' && (
           <ManageTeamList
             teamMembers={teamMembers}
