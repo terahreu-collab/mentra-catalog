@@ -10,9 +10,9 @@ import { supabase } from '@/lib/supabase'
 const STATUSES = ['Not Started', 'In Progress', 'Completed']
 
 const STATUS_STYLE = {
-  'Not Started': 'bg-zinc-700/60 text-zinc-300 ring-zinc-600/80',
-  'In Progress': 'bg-amber-900/40 text-amber-300 ring-amber-700/60',
-  Completed: 'bg-emerald-900/40 text-emerald-300 ring-emerald-700/60',
+  'Not Started': 'bg-zinc-700/60 text-zinc-200 ring-zinc-600/80',
+  'In Progress': 'bg-amber-900/50 text-amber-200 ring-amber-600/70',
+  Completed: 'bg-emerald-900/50 text-emerald-200 ring-emerald-600/70',
 }
 
 function cycleStatus(current) {
@@ -239,7 +239,7 @@ function StatusBadge({ status, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`${STATUS_STYLE[status] || STATUS_STYLE['Not Started']} ring-1 px-2.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:brightness-125 transition-all whitespace-nowrap`}
+      className={`${STATUS_STYLE[status] || STATUS_STYLE['Not Started']} ring-1 px-3 py-1 rounded-full text-[0.8rem] font-semibold cursor-pointer hover:brightness-125 transition-all whitespace-nowrap`}
       title="Click to cycle status"
     >
       {status}
@@ -392,6 +392,198 @@ function ConfirmDialog({ open, name, onConfirm, onCancel, deleting }) {
 }
 
 /* ═══════════════════════════════════════════════════
+   CELEBRATION ANIMATION
+   ═══════════════════════════════════════════════════ */
+
+const CELEBRATION_MESSAGES = [
+  'Awesome! 🎉',
+  'Rocking it! 🎸',
+  "You're the best! ⭐",
+  'Nailed it! 💪',
+  'Superstar! 🌟',
+  'Way to go! 🚀',
+  'Incredible! 🔥',
+  'Legend! 👑',
+]
+
+const MILESTONE_MESSAGES = {
+  5: "Whoa! 5 projects done??? That's amazing! 🤯",
+  10: "10 DONE?! You're an absolute machine! 🏆",
+  15: "15!! Is there anything you CAN'T do?! 👑",
+  20: 'You deserve a raise! 💰',
+  25: "25! You're literally a legend! 🐐",
+}
+
+const MILESTONE_EMOJIS = ['🤯', '🏆', '👑', '💰', '🐐']
+
+function getMilestoneMessage(count) {
+  if (MILESTONE_MESSAGES[count]) return MILESTONE_MESSAGES[count]
+  /* for 30, 35, 40… pick a random milestone message */
+  const keys = Object.keys(MILESTONE_MESSAGES)
+  return MILESTONE_MESSAGES[keys[Math.floor(Math.random() * keys.length)]].replace(/\d+/, String(count))
+}
+
+const CONFETTI_COLORS = ['#a78bfa', '#c084fc', '#e879f9', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#f87171']
+const CONFETTI_COLORS_MEGA = ['#a78bfa', '#c084fc', '#e879f9', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#f87171', '#fde68a', '#a3e635', '#22d3ee', '#fb923c']
+
+function CelebrationPopup({ visible, onDone, milestone }) {
+  const isMilestone = !!milestone
+  const [message] = useState(() =>
+    isMilestone
+      ? getMilestoneMessage(milestone)
+      : CELEBRATION_MESSAGES[Math.floor(Math.random() * CELEBRATION_MESSAGES.length)],
+  )
+  const [emoji] = useState(() =>
+    isMilestone
+      ? MILESTONE_EMOJIS[Math.floor(Math.random() * MILESTONE_EMOJIS.length)]
+      : '🎉',
+  )
+
+  const particleCount = isMilestone ? 90 : 40
+  const colors = isMilestone ? CONFETTI_COLORS_MEGA : CONFETTI_COLORS
+  const duration = isMilestone ? 4800 : 2800
+  const fadeOutDelay = isMilestone ? 3.8 : 2.2
+
+  const [confetti] = useState(() =>
+    Array.from({ length: particleCount }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      delay: Math.random() * (isMilestone ? 1.0 : 0.6),
+      duration: (isMilestone ? 1.8 : 1.2) + Math.random() * (isMilestone ? 1.8 : 1.2),
+      size: (isMilestone ? 5 : 4) + Math.random() * (isMilestone ? 9 : 6),
+      color: colors[Math.floor(Math.random() * colors.length)],
+      drift: (Math.random() - 0.5) * (isMilestone ? 120 : 60),
+      rotation: Math.random() * 360,
+    })),
+  )
+
+  useEffect(() => {
+    if (!visible) return
+    const t = setTimeout(() => onDone(), duration)
+    return () => clearTimeout(t)
+  }, [visible, onDone, duration])
+
+  if (!visible) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-[9999] pointer-events-none flex items-end justify-center pb-12"
+      style={isMilestone ? { animation: 'cel-screen-shake 0.5s 0.2s ease-in-out 2' } : undefined}
+    >
+      {/* Inline keyframes */}
+      <style>{`
+        @keyframes cel-bounce-in {
+          0% { opacity: 0; transform: translateY(120px) scale(0.3); }
+          60% { opacity: 1; transform: translateY(-15px) scale(1.05); }
+          80% { transform: translateY(5px) scale(0.97); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes cel-bounce-in-mega {
+          0% { opacity: 0; transform: translateY(200px) scale(0.2); }
+          50% { opacity: 1; transform: translateY(-30px) scale(1.15); }
+          70% { transform: translateY(10px) scale(0.95); }
+          85% { transform: translateY(-8px) scale(1.05); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes cel-fade-out {
+          0% { opacity: 1; transform: translateY(0) scale(1); }
+          100% { opacity: 0; transform: translateY(60px) scale(0.7); }
+        }
+        @keyframes cel-wiggle {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(-12deg); }
+          75% { transform: rotate(12deg); }
+        }
+        @keyframes cel-wiggle-mega {
+          0%, 100% { transform: rotate(0deg) scale(1); }
+          15% { transform: rotate(-18deg) scale(1.1); }
+          30% { transform: rotate(18deg) scale(0.95); }
+          45% { transform: rotate(-14deg) scale(1.08); }
+          60% { transform: rotate(14deg) scale(0.97); }
+          75% { transform: rotate(-8deg) scale(1.03); }
+          90% { transform: rotate(8deg) scale(1); }
+        }
+        @keyframes cel-confetti {
+          0% { opacity: 1; transform: translateY(0) translateX(0) rotate(0deg); }
+          100% { opacity: 0; transform: translateY(85vh) translateX(var(--cel-drift)) rotate(720deg); }
+        }
+        @keyframes cel-screen-shake {
+          0%, 100% { transform: translate(0, 0); }
+          10% { transform: translate(-4px, -2px); }
+          20% { transform: translate(4px, 2px); }
+          30% { transform: translate(-3px, 3px); }
+          40% { transform: translate(3px, -3px); }
+          50% { transform: translate(-2px, 2px); }
+          60% { transform: translate(2px, -1px); }
+          70% { transform: translate(-1px, 1px); }
+          80% { transform: translate(1px, -1px); }
+          90% { transform: translate(-1px, 0px); }
+        }
+        @keyframes cel-glow-pulse {
+          0%, 100% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.4), 0 0 40px rgba(168, 85, 247, 0.1); }
+          50% { box-shadow: 0 0 40px rgba(168, 85, 247, 0.7), 0 0 80px rgba(168, 85, 247, 0.3), 0 0 120px rgba(168, 85, 247, 0.1); }
+        }
+      `}</style>
+
+      {/* Confetti */}
+      {confetti.map((c) => (
+        <div
+          key={c.id}
+          className="absolute"
+          style={{
+            left: `${c.x}%`,
+            top: '-10px',
+            width: c.size,
+            height: c.size * 1.4,
+            backgroundColor: c.color,
+            borderRadius: c.size < 7 ? '50%' : '2px',
+            opacity: 0,
+            '--cel-drift': `${c.drift}px`,
+            animation: `cel-confetti ${c.duration}s ${c.delay}s ease-out forwards`,
+          }}
+        />
+      ))}
+
+      {/* Bouncing character + speech bubble */}
+      <div
+        className="flex flex-col items-center"
+        style={{
+          animation: `${isMilestone ? 'cel-bounce-in-mega 0.7s' : 'cel-bounce-in 0.5s'} cubic-bezier(0.34, 1.56, 0.64, 1) forwards, cel-fade-out 0.6s ${fadeOutDelay}s ease-in forwards`,
+        }}
+      >
+        {/* Speech bubble */}
+        <div
+          className={`border rounded-2xl relative ${
+            isMilestone
+              ? 'bg-gradient-to-br from-[#2a1860] to-[#1e1640] border-purple-400/70 px-7 py-5 mb-3 shadow-2xl'
+              : 'bg-[#1e1640] border-purple-500/50 px-5 py-3 mb-2 shadow-lg shadow-purple-900/50'
+          }`}
+          style={isMilestone ? { animation: 'cel-glow-pulse 1s ease-in-out infinite' } : undefined}
+        >
+          <p className={`font-bold text-white ${isMilestone ? 'text-2xl max-w-xs text-center leading-snug' : 'text-lg whitespace-nowrap'}`}>
+            {message}
+          </p>
+          {isMilestone && (
+            <p className="text-center text-sm text-purple-300 mt-1.5 font-semibold">🎯 Milestone reached!</p>
+          )}
+          {/* Bubble arrow */}
+          <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rotate-45 border-r border-b ${
+            isMilestone ? 'bg-[#1e1640] border-purple-400/70' : 'bg-[#1e1640] border-purple-500/50'
+          }`} />
+        </div>
+        {/* Character */}
+        <div
+          className={`select-none ${isMilestone ? 'text-8xl' : 'text-5xl'}`}
+          style={{ animation: `${isMilestone ? 'cel-wiggle-mega 0.8s 0.3s ease-in-out 4' : 'cel-wiggle 0.4s 0.3s ease-in-out 3'}` }}
+        >
+          {emoji}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
    DASHBOARD
    ═══════════════════════════════════════════════════ */
 
@@ -405,7 +597,8 @@ function Dashboard({ lessons }) {
     ).length
     const hasQuestions = lessons.filter((l) => l.has_question).length
     const overdue = lessons.filter(isOverdue).length
-    return { total, scriptsDone, videosDone, inProgress, hasQuestions, overdue }
+    const approved = lessons.filter((l) => l.approved).length
+    return { total, scriptsDone, videosDone, inProgress, hasQuestions, overdue, approved }
   }, [lessons])
 
   const cards = [
@@ -413,12 +606,13 @@ function Dashboard({ lessons }) {
     { label: 'Scripts Done', value: stats.scriptsDone, icon: '📝', border: 'border-emerald-700/40' },
     { label: 'Videos Done', value: stats.videosDone, icon: '🎬', border: 'border-blue-700/40' },
     { label: 'In Progress', value: stats.inProgress, icon: '⏳', border: 'border-amber-700/40' },
+    { label: 'Approved', value: stats.approved, icon: '✅', border: 'border-green-700/40' },
     { label: 'Has Questions', value: stats.hasQuestions, icon: '❓', border: 'border-rose-700/40' },
     { label: 'Overdue', value: stats.overdue, icon: '🚨', border: 'border-red-700/40' },
   ]
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-8">
       {cards.map((c) => (
         <div
           key={c.label}
@@ -593,8 +787,6 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
   const [scriptStatus, setScriptStatus] = useState('Not Started')
   const [videoStatus, setVideoStatus] = useState('Not Started')
   const [dateCompleted, setDateCompleted] = useState('')
-  const [hasQuestion, setHasQuestion] = useState(false)
-
   /* derived flags for conditional UI */
   const eitherCompleted = scriptStatus === 'Completed' || videoStatus === 'Completed'
   const bothCompleted = scriptStatus === 'Completed' && videoStatus === 'Completed'
@@ -612,7 +804,6 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
       setDateCompleted(new Date().toISOString().split('T')[0])
     }
   }
-  const [questionNote, setQuestionNote] = useState('')
   const [saving, setSaving] = useState(false)
 
   const grouped = useMemo(() => {
@@ -640,8 +831,8 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
       date_completed: dateCompleted || null,
       script_status: scriptStatus,
       video_status: videoStatus,
-      has_question: hasQuestion,
-      question_note: questionNote || null,
+      has_question: false,
+      question_note: null,
     })
     setSaving(false)
     if (error) return console.error(error)
@@ -743,29 +934,6 @@ function AddLessonForm({ companies, departments, courses, teamMembers, preselect
             <label className={labelCls}>Date Completed</label>
             <input type="date" className={inputCls} value={dateCompleted} onChange={(e) => setDateCompleted(e.target.value)} />
           </div>
-        </div>
-      )}
-      <div>
-        <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={hasQuestion}
-            onChange={(e) => setHasQuestion(e.target.checked)}
-            className="accent-purple-500 w-4 h-4"
-          />
-          Has Question
-        </label>
-      </div>
-      {hasQuestion && (
-        <div>
-          <label className={labelCls}>Question / Note</label>
-          <textarea
-            className={inputCls + ' resize-none'}
-            rows={2}
-            value={questionNote}
-            onChange={(e) => setQuestionNote(e.target.value)}
-            placeholder="Describe the question…"
-          />
         </div>
       )}
       <div className="flex justify-end gap-2 pt-2">
@@ -1355,6 +1523,279 @@ function FilesManager({ lessonId, initialFiles, onSaved }) {
                     <TrashIcon size={11} /> Delete
                   </button>
         </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
+   COURSE FILES MANAGER  —  JSON in course_files
+   Shared attachments at the course level
+   ═══════════════════════════════════════════════════ */
+
+function CourseFilesManager({ courseId, initialFiles, onSaved }) {
+  const [files, setFiles] = useState(() => {
+    try {
+      if (!initialFiles) return []
+      const parsed = typeof initialFiles === 'string' ? JSON.parse(initialFiles) : initialFiles
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
+  })
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [editingNote, setEditingNote] = useState(null)
+  const [noteValue, setNoteValue] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef(null)
+  const intervalRef = useRef(null)
+
+  /* sync files state when initialFiles prop changes (e.g. after refresh) */
+  useEffect(() => {
+    try {
+      if (!initialFiles) { setFiles([]); return }
+      const parsed = typeof initialFiles === 'string' ? JSON.parse(initialFiles) : initialFiles
+      setFiles(Array.isArray(parsed) ? parsed : [])
+    } catch { setFiles([]) }
+  }, [initialFiles])
+
+  useEffect(() => {
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [])
+
+  /* persist files JSON to Supabase */
+  const saveFiles = useCallback(async (updated) => {
+    const { error } = await supabase
+      .from('courses')
+      .update({ course_files: updated })
+      .eq('id', courseId)
+    if (error) console.error('Failed to save course files:', error)
+    if (onSaved) onSaved(courseId, 'course_files', updated)
+  }, [courseId, onSaved])
+
+  /* upload one or more files */
+  const handleUpload = async (fileList) => {
+    if (!fileList || fileList.length === 0) return
+    setUploading(true)
+    setUploadProgress(0)
+
+    const filesToUpload = Array.from(fileList)
+    const totalFiles = filesToUpload.length
+    let completed = 0
+
+    intervalRef.current = setInterval(() => {
+      setUploadProgress((p) => {
+        const target = ((completed / totalFiles) * 100) + ((1 / totalFiles) * 80)
+        if (p >= target) { clearInterval(intervalRef.current); return p }
+        return p + Math.random() * 8
+      })
+    }, 200)
+
+    const newFiles = []
+
+    for (const file of filesToUpload) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const filePath = `course_${courseId}/${Date.now()}_${safeName}`
+
+      const { error } = await supabase.storage
+        .from('lesson-files')
+        .upload(filePath, file, { upsert: true })
+
+      if (error) {
+        console.error('Course file upload failed:', file.name, error)
+        completed++
+        continue
+      }
+
+      const { data: urlData } = supabase.storage.from('lesson-files').getPublicUrl(filePath)
+
+      newFiles.push({
+        filename: file.name,
+        url: urlData.publicUrl,
+        storagePath: filePath,
+        size: file.size,
+        type: file.type,
+        note: '',
+        uploadedAt: new Date().toISOString(),
+      })
+      completed++
+      setUploadProgress((completed / totalFiles) * 100)
+    }
+
+    clearInterval(intervalRef.current)
+    setUploadProgress(100)
+
+    const updated = [...files, ...newFiles]
+    setFiles(updated)
+    await saveFiles(updated)
+
+    setUploading(false)
+    setUploadProgress(0)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleDelete = async (index) => {
+    const file = files[index]
+    if (!file) return
+
+    if (file.storagePath) {
+      await supabase.storage.from('lesson-files').remove([file.storagePath])
+    } else if (file.url) {
+      const marker = '/storage/v1/object/public/lesson-files/'
+      const idx = file.url.indexOf(marker)
+      if (idx !== -1) {
+        const path = decodeURIComponent(file.url.slice(idx + marker.length))
+        await supabase.storage.from('lesson-files').remove([path])
+      }
+    }
+
+    const updated = files.filter((_, i) => i !== index)
+    setFiles(updated)
+    await saveFiles(updated)
+  }
+
+  const saveNote = async (index) => {
+    const updated = files.map((f, i) => (i === index ? { ...f, note: noteValue } : f))
+    setFiles(updated)
+    setEditingNote(null)
+    await saveFiles(updated)
+  }
+
+  /* drag & drop handlers */
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true) }
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false) }
+  const handleDrop = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files)
+    }
+  }
+
+  return (
+    <div className="mt-3 mb-2">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-sm">📁</span>
+        <span className="text-xs font-semibold text-purple-300 uppercase tracking-wider">Shared Course Files</span>
+        <span className="text-[10px] text-zinc-500">{files.length} file{files.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      {/* Upload zone */}
+      <div
+        className={`border border-dashed rounded-xl px-4 py-4 w-full transition-colors cursor-pointer flex flex-col items-center justify-center gap-1.5 ${
+          dragOver
+            ? 'border-purple-400 bg-purple-900/20'
+            : 'border-purple-700/40 bg-[#13102a] hover:border-purple-500/60 hover:bg-purple-900/10'
+        } ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => !uploading && fileInputRef.current?.click()}
+      >
+        <UploadIcon size={20} />
+        <p className="text-xs text-zinc-400">
+          {uploading ? 'Uploading…' : dragOver ? 'Drop files here' : 'Click or drag & drop course files'}
+        </p>
+        <p className="text-[10px] text-zinc-600">Shared resources for all lessons in this course</p>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => e.target.files && handleUpload(e.target.files)}
+      />
+
+      {/* Upload progress */}
+      {uploading && (
+        <div className="mt-2">
+          <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-purple-500 h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${Math.round(uploadProgress)}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-zinc-500 mt-0.5">{Math.round(uploadProgress)}% uploaded</p>
+        </div>
+      )}
+
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-3">
+          {files.map((file, idx) => (
+            <div key={idx} className="bg-[#13102a] border border-purple-900/30 rounded-lg overflow-hidden group">
+              {/* Thumbnail / icon */}
+              <div className="h-24 bg-[#0b091a] flex items-center justify-center overflow-hidden">
+                {isImageFile(file.filename) ? (
+                  <img src={file.url} alt={file.filename} className="w-full h-full object-cover" loading="lazy" />
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-zinc-500">
+                    <FileIcon size={28} />
+                    <span className="text-[9px] uppercase font-bold tracking-wider text-zinc-600">
+                      {file.filename?.split('.').pop() || 'file'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Info */}
+              <div className="p-2.5 space-y-1.5">
+                <p className="text-[11px] text-zinc-200 truncate font-medium" title={file.filename}>
+                  {file.filename}
+                </p>
+                <p className="text-[10px] text-zinc-500">
+                  {formatFileSize(file.size)}
+                  {file.uploadedAt && ` · ${new Date(file.uploadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                </p>
+
+                {/* Note */}
+                {editingNote === idx ? (
+                  <div className="flex gap-1">
+                    <input
+                      className="flex-1 bg-[#0e0b1a] border border-purple-900/40 rounded px-2 py-0.5 text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                      value={noteValue}
+                      onChange={(e) => setNoteValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveNote(idx); if (e.key === 'Escape') setEditingNote(null) }}
+                      placeholder="Add a note…"
+                      autoFocus
+                    />
+                    <button onClick={() => saveNote(idx)} className="text-emerald-400 hover:text-emerald-300 text-[10px] cursor-pointer">✓</button>
+                    <button onClick={() => setEditingNote(null)} className="text-zinc-500 hover:text-zinc-300 text-[10px] cursor-pointer">✕</button>
+                  </div>
+                ) : (
+                  <p
+                    className="text-[10px] text-zinc-500 truncate cursor-pointer hover:text-purple-300 transition-colors"
+                    onClick={() => { setEditingNote(idx); setNoteValue(file.note || '') }}
+                    title={file.note || 'Click to add note'}
+                  >
+                    {file.note || '+ Add note'}
+                  </p>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-0.5">
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    download={file.filename}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <DownloadIcon size={10} /> Download
+                  </a>
+                  <button
+                    onClick={() => handleDelete(idx)}
+                    className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors cursor-pointer ml-auto flex items-center gap-1"
+                  >
+                    <TrashIcon size={10} /> Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -2272,18 +2713,69 @@ function LessonDetail({ lesson, onSaved }) {
    LESSON ROW  —  expandable with detail panel
    ═══════════════════════════════════════════════════ */
 
-function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename }) {
+function LessonRow({ lesson, teamMembers, onCycleStatus, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename, onUpdateField }) {
   const member = teamMembers.find((t) => t.id === lesson.assigned_to)
   const overdue = isOverdue(lesson)
+  const [editingDate, setEditingDate] = useState(null) // 'date_assigned' | 'due_date' | null
+  const [showQuestionPopover, setShowQuestionPopover] = useState(false)
+  const [questionNoteValue, setQuestionNoteValue] = useState(lesson.question_note || '')
+  const questionRef = useRef(null)
+  const noteInputRef = useRef(null)
+
+  /* toggle has_question + open note popover */
+  const handleQuestionClick = (e) => {
+    e.stopPropagation()
+    if (lesson.has_question) {
+      /* if already active, clicking opens the note popover */
+      setShowQuestionPopover((prev) => !prev)
+    } else {
+      /* activate and open note popover */
+      onUpdateField(lesson.id, 'has_question', true)
+      setShowQuestionPopover(true)
+    }
+  }
+
+  /* save question note */
+  const saveQuestionNote = () => {
+    onUpdateField(lesson.id, 'question_note', questionNoteValue.trim() || null)
+    setShowQuestionPopover(false)
+  }
+
+  /* remove question */
+  const clearQuestion = () => {
+    onUpdateField(lesson.id, 'has_question', false)
+    onUpdateField(lesson.id, 'question_note', null)
+    setQuestionNoteValue('')
+    setShowQuestionPopover(false)
+  }
+
+  /* close popover on outside click */
+  useEffect(() => {
+    if (!showQuestionPopover) return
+    const handler = (e) => {
+      if (questionRef.current && !questionRef.current.contains(e.target)) {
+        setShowQuestionPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showQuestionPopover])
+
+  /* focus note input when popover opens */
+  useEffect(() => {
+    if (showQuestionPopover && noteInputRef.current) {
+      setTimeout(() => noteInputRef.current?.focus(), 50)
+    }
+  }, [showQuestionPopover])
 
   return (
     <>
       <tr className={`border-b border-purple-900/20 hover:bg-purple-900/10 transition-colors ${overdue ? 'bg-red-950/20' : ''} ${isExpanded ? 'bg-purple-900/15 border-b-0' : ''}`}>
-        <td className="py-2.5 px-3 text-sm text-zinc-100 font-medium">
+        <td className="py-2.5 px-3 text-[0.9rem] text-white font-semibold">
           <div className="flex items-center gap-2">
             <button
               onClick={() => onToggleExpand(lesson.id)}
-              className="flex-shrink-0 text-zinc-500 hover:text-purple-400 transition-colors cursor-pointer"
+              className="flex-shrink-0 text-zinc-400 hover:text-purple-400 transition-colors cursor-pointer"
               title={isExpanded ? 'Collapse' : 'Expand to edit script, video & quiz'}
             >
               <ChevronIcon open={isExpanded} />
@@ -2291,7 +2783,7 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
             <InlineEdit
               value={lesson.title}
               onSave={(v) => onRename(lesson.id, v)}
-              className="hover:text-purple-300 transition-colors"
+              className="hover:text-purple-300 transition-colors tracking-tight"
             />
             {overdue && (
               <span className="text-[10px] bg-red-900/60 text-red-300 ring-1 ring-red-700/60 rounded-full px-1.5 py-0.5 font-medium">
@@ -2326,21 +2818,119 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
           </div>
         </td>
         <td className="py-2.5 px-3">
-          <select
-            className="bg-transparent text-sm text-zinc-400 hover:text-zinc-200 focus:text-zinc-200 border-none outline-none cursor-pointer appearance-none pr-4 w-full focus:ring-1 focus:ring-purple-500/40 rounded py-0.5"
-            value={lesson.assigned_to || ''}
-            onChange={(e) => onReassign(lesson.id, e.target.value || null, lesson.assigned_to, lesson.title, lesson.course_id)}
-            title="Click to reassign"
-          >
-            <option value="">Unassigned</option>
-            {teamMembers.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5">
+            <select
+              className="bg-transparent text-sm text-zinc-300 hover:text-zinc-100 focus:text-zinc-100 border-none outline-none cursor-pointer appearance-none pr-2 flex-1 focus:ring-1 focus:ring-purple-500/40 rounded py-0.5"
+              value={lesson.assigned_to || ''}
+              onChange={(e) => onReassign(lesson.id, e.target.value || null, lesson.assigned_to, lesson.title, lesson.course_id)}
+              title="Click to reassign"
+            >
+              <option value="">Unassigned</option>
+              {teamMembers.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            {/* Question icon */}
+            <div className="relative flex-shrink-0" ref={questionRef}>
+              <button
+                onClick={handleQuestionClick}
+                className={`w-5 h-5 rounded-full text-[11px] font-bold cursor-pointer transition-all flex items-center justify-center ${
+                  lesson.has_question
+                    ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50 hover:bg-amber-500/30'
+                    : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'
+                }`}
+                title={lesson.has_question ? (lesson.question_note || 'Has question — click to edit note') : 'Click to flag a question'}
+              >
+                ?
+              </button>
+              {/* Question note popover */}
+              {showQuestionPopover && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 w-64 bg-[#1a1530] border border-purple-700/50 rounded-xl shadow-xl shadow-purple-900/30 p-3 space-y-2">
+                  {/* Arrow */}
+                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#1a1530] border-l border-t border-purple-700/50 rotate-45" />
+                  <label className="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">Question / Note</label>
+                  <textarea
+                    ref={noteInputRef}
+                    className="w-full bg-[#0e0b1a] border border-purple-900/40 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none"
+                    rows={3}
+                    value={questionNoteValue}
+                    onChange={(e) => setQuestionNoteValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveQuestionNote() }
+                      if (e.key === 'Escape') setShowQuestionPopover(false)
+                    }}
+                    placeholder="Describe the question…"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={saveQuestionNote}
+                      className="bg-purple-600/80 hover:bg-purple-500 text-white rounded-lg px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={clearQuestion}
+                      className="text-[11px] text-zinc-500 hover:text-red-400 transition-colors cursor-pointer"
+                    >
+                      Remove question
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </td>
-        <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_assigned)}</td>
-        <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.due_date)}</td>
-        <td className="py-2.5 px-3 text-sm text-zinc-500 whitespace-nowrap">{fmt(lesson.date_completed)}</td>
+        {/* Editable Date Assigned */}
+        <td className="py-2.5 px-3 text-sm whitespace-nowrap">
+          {editingDate === 'date_assigned' ? (
+            <input
+              type="date"
+              className="bg-[#13102a] border border-purple-700/50 rounded px-1.5 py-0.5 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-purple-500/60 w-[130px] cursor-pointer"
+              defaultValue={lesson.date_assigned || ''}
+              autoFocus
+              onChange={(e) => {
+                onUpdateField(lesson.id, 'date_assigned', e.target.value || null)
+                setEditingDate(null)
+              }}
+              onBlur={() => setEditingDate(null)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setEditingDate(null) }}
+            />
+          ) : (
+            <span
+              className="text-zinc-300 hover:text-purple-300 cursor-pointer transition-colors border-b border-dashed border-transparent hover:border-purple-500/40 pb-0.5"
+              onClick={(e) => { e.stopPropagation(); setEditingDate('date_assigned') }}
+              title="Click to edit"
+            >
+              {fmt(lesson.date_assigned)}
+            </span>
+          )}
+        </td>
+        {/* Editable Due Date */}
+        <td className="py-2.5 px-3 text-sm whitespace-nowrap">
+          {editingDate === 'due_date' ? (
+            <input
+              type="date"
+              className="bg-[#13102a] border border-purple-700/50 rounded px-1.5 py-0.5 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-purple-500/60 w-[130px] cursor-pointer"
+              defaultValue={lesson.due_date || ''}
+              autoFocus
+              onChange={(e) => {
+                onUpdateField(lesson.id, 'due_date', e.target.value || null)
+                setEditingDate(null)
+              }}
+              onBlur={() => setEditingDate(null)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setEditingDate(null) }}
+            />
+          ) : (
+            <span
+              className="text-zinc-300 hover:text-purple-300 cursor-pointer transition-colors border-b border-dashed border-transparent hover:border-purple-500/40 pb-0.5"
+              onClick={(e) => { e.stopPropagation(); setEditingDate('due_date') }}
+              title="Click to edit"
+            >
+              {fmt(lesson.due_date)}
+            </span>
+          )}
+        </td>
+        <td className="py-2.5 px-3 text-sm text-zinc-300 whitespace-nowrap">{fmt(lesson.date_completed)}</td>
         <td className="py-2.5 px-3">
           <StatusBadge status={lesson.script_status} onClick={() => onCycleStatus(lesson.id, 'script_status', lesson.script_status)} />
         </td>
@@ -2349,19 +2939,16 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
         </td>
         <td className="py-2.5 px-3 text-center">
           <button
-            onClick={() => onToggleQuestion(lesson.id, !lesson.has_question)}
-            className={`w-6 h-6 rounded-md text-xs font-bold cursor-pointer transition-colors ${
-              lesson.has_question
-                ? 'bg-rose-900/50 text-rose-300 ring-1 ring-rose-700/50'
-                : 'bg-zinc-800 text-zinc-600 ring-1 ring-zinc-700/50'
+            onClick={() => onUpdateField(lesson.id, 'approved', !lesson.approved)}
+            className={`w-6 h-6 rounded-md text-xs font-bold cursor-pointer transition-all border ${
+              lesson.approved
+                ? 'bg-emerald-900/50 text-emerald-300 border-emerald-600/60 ring-1 ring-emerald-700/50'
+                : 'bg-zinc-800/60 text-zinc-600 border-zinc-700/50 hover:border-zinc-600 hover:text-zinc-400'
             }`}
-            title={lesson.has_question ? (lesson.question_note || 'Has question') : 'No question'}
+            title={lesson.approved ? 'Approved — click to unapprove' : 'Click to approve'}
           >
-            ?
+            {lesson.approved ? '✓' : ''}
           </button>
-        </td>
-        <td className="py-2.5 px-3 text-sm text-zinc-500 max-w-[180px] truncate" title={lesson.question_note || ''}>
-          {lesson.question_note || '—'}
         </td>
         <td className="py-2.5 px-3 text-center">
           <button
@@ -2375,7 +2962,7 @@ function LessonRow({ lesson, teamMembers, onCycleStatus, onToggleQuestion, onDel
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={10} className="p-0">
+          <td colSpan={9} className="p-0">
             <LessonDetail lesson={lesson} onSaved={onSaved} />
           </td>
         </tr>
@@ -2400,8 +2987,7 @@ function LessonTableHead() {
         <th className={th}>Completed</th>
         <th className={th}>Script</th>
         <th className={th}>Video</th>
-        <th className={th + ' text-center'}>Q?</th>
-        <th className={th}>Note</th>
+        <th className={th + ' text-center'}>Approved</th>
         <th className={th + ' w-10'}></th>
       </tr>
     </thead>
@@ -2430,6 +3016,15 @@ export default function Home() {
 
   // expand / collapse  –  { companies: {}, departments: {}, courses: {}, lessons: {} }
   const [exp, setExp] = useState({ companies: {}, departments: {}, courses: {}, lessons: {} })
+
+  // celebration animation
+  const [showCelebration, setShowCelebration] = useState(false)
+  const [celebrationKey, setCelebrationKey] = useState(0)
+  const [celebrationMilestone, setCelebrationMilestone] = useState(null)
+
+  // warning toast
+  const [warningMsg, setWarningMsg] = useState(null)
+  const warningTimer = useRef(null)
 
   // notifications
   const [notifications, setNotifications] = useState([])
@@ -2519,6 +3114,44 @@ export default function Home() {
     }
   }
 
+  /* ─── send video completion notification (email to manager + in-app) ─── */
+  const sendCompletionNotification = async (lesson) => {
+    const member = lesson.assigned_to ? teamMembers.find((t) => t.id === lesson.assigned_to) : null
+    const memberName = member?.name || 'Unassigned'
+    const course = courses.find((c) => c.id === lesson.course_id)
+    const dept = course ? departments.find((d) => d.id === course.department_id) : null
+    const company = dept ? companies.find((co) => co.id === dept.company_id) : null
+    const dateCompleted = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+
+    const message = `Video completed: "${lesson.title}" by ${memberName}`
+
+    /* create in-app notification */
+    const { data: notifData } = await supabase.from('notifications').insert({
+      team_member_id: lesson.assigned_to || null,
+      message,
+      is_read: false,
+    }).select()
+
+    if (notifData) {
+      setNotifications((prev) => [...notifData, ...prev])
+    }
+
+    /* send email to manager (fire-and-forget) */
+    fetch('/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'completion',
+        managerEmail: 'terah.bromley@almallc.com',
+        teamMemberName: memberName,
+        lessonTitle: lesson.title,
+        courseName: course?.name || '',
+        companyName: company?.name || '',
+        dateCompleted,
+      }),
+    }).catch((err) => console.error('Completion email failed:', err))
+  }
+
   /* ─── expand / collapse helpers ─── */
   const toggle = (level, id) =>
     setExp((prev) => ({
@@ -2539,6 +3172,19 @@ export default function Home() {
   /* ─── update lesson field locally (for child component saves) ─── */
   const updateLessonLocally = (lessonId, field, value) => {
     setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, [field]: value } : l)))
+  }
+
+  /* ─── update a single lesson field in Supabase + local state ─── */
+  const updateLessonField = async (lessonId, field, value) => {
+    /* optimistic */
+    setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, [field]: value } : l)))
+    const { error } = await supabase.from('lessons').update({ [field]: value }).eq('id', lessonId)
+    if (error) { console.error(`Update ${field} failed:`, error); fetchAll() }
+  }
+
+  /* ─── update course field locally (for course files saves) ─── */
+  const updateCourseLocally = (courseId, field, value) => {
+    setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, [field]: value } : c)))
   }
 
   /* ─── rename handler (companies, departments, courses, lessons) ─── */
@@ -2565,11 +3211,25 @@ export default function Home() {
   }
 
   /* ─── lesson mutations (optimistic) ─── */
+  /* helper to show a warning toast */
+  const showWarning = (msg) => {
+    if (warningTimer.current) clearTimeout(warningTimer.current)
+    setWarningMsg(msg)
+    warningTimer.current = setTimeout(() => setWarningMsg(null), 3500)
+  }
+
   const cycleStatusHandler = async (lessonId, field, current) => {
     const next = cycleStatus(current)
+    const lesson = lessons.find((l) => l.id === lessonId)
+
+    /* block video_status → Completed if no video uploaded */
+    if (field === 'video_status' && next === 'Completed' && lesson && !lesson.video_url) {
+      showWarning('Please upload a video before marking as complete')
+      return
+    }
+
     const updates = { [field]: next }
 
-    const lesson = lessons.find((l) => l.id === lessonId)
     if (lesson) {
       const otherField = field === 'script_status' ? 'video_status' : 'script_status'
       if (next === 'Completed' && lesson[otherField] === 'Completed') {
@@ -2581,19 +3241,33 @@ export default function Home() {
 
     setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, ...updates } : l)))
 
+    /* trigger celebration when video status goes to Completed */
+    if (field === 'video_status' && next === 'Completed') {
+      /* count this team member's total completed videos (including this one) */
+      let milestoneCount = null
+      if (lesson && lesson.assigned_to) {
+        const memberId = lesson.assigned_to
+        const completedCount = lessons.filter(
+          (l) => l.assigned_to === memberId && l.video_status === 'Completed' && l.id !== lessonId,
+        ).length + 1 // +1 for the one we just completed
+        if (completedCount > 0 && completedCount % 5 === 0) {
+          milestoneCount = completedCount
+        }
+      }
+      setCelebrationMilestone(milestoneCount)
+      setCelebrationKey((k) => k + 1)
+      setShowCelebration(true)
+    }
+
     const { error } = await supabase.from('lessons').update(updates).eq('id', lessonId)
     if (error) {
       console.error('Status update failed:', error)
       fetchAll()
     }
-  }
 
-  const toggleQuestion = async (lessonId, value) => {
-    setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, has_question: value } : l)))
-    const { error } = await supabase.from('lessons').update({ has_question: value }).eq('id', lessonId)
-    if (error) {
-      console.error('Toggle question failed:', error)
-      fetchAll()
+    /* send completion notification when video status → Completed */
+    if (field === 'video_status' && next === 'Completed' && lesson) {
+      sendCompletionNotification(lesson)
     }
   }
 
@@ -2823,8 +3497,8 @@ export default function Home() {
                           🌿 EVERGREEN
                         </span>
                       )}
-                      <span className="ml-auto text-xs text-zinc-600">
-                        {companyDepts.length} dept{companyDepts.length !== 1 && 's'} · {companyLessons.length} lesson{companyLessons.length !== 1 && 's'}
+                      <span className="ml-auto text-[0.8rem] text-zinc-400">
+                        <span className="font-semibold text-zinc-200">{companyDepts.length}</span> dept{companyDepts.length !== 1 && 's'} <span className="text-zinc-500">·</span> <span className="font-semibold text-zinc-200">{companyLessons.length}</span> lesson{companyLessons.length !== 1 && 's'}
                       </span>
                       <span
                         onClick={(e) => {
@@ -2862,8 +3536,8 @@ export default function Home() {
                                   onSave={(v) => renameItem('departments', dept.id, 'name', v)}
                                   className="font-medium text-purple-200 text-sm"
                                 />
-                                <span className="ml-auto text-xs text-zinc-600">
-                                  {deptCourses.length} course{deptCourses.length !== 1 && 's'} · {deptLessons.length} lesson{deptLessons.length !== 1 && 's'}
+                                <span className="ml-auto text-[0.8rem] text-zinc-400">
+                                  <span className="font-semibold text-zinc-200">{deptCourses.length}</span> course{deptCourses.length !== 1 && 's'} <span className="text-zinc-500">·</span> <span className="font-semibold text-zinc-200">{deptLessons.length}</span> lesson{deptLessons.length !== 1 && 's'}
                                 </span>
                                 <span
                                   onClick={(e) => {
@@ -2900,8 +3574,19 @@ export default function Home() {
                                             onSave={(v) => renameItem('courses', course.id, 'name', v)}
                                             className="font-medium text-purple-300/80 text-sm"
                                           />
-                                          <span className="ml-auto text-xs text-zinc-600">
-                                            {cLessons.length} lesson{cLessons.length !== 1 && 's'}
+                                          {/* Course files badge */}
+                                          {course.course_files && (() => {
+                                            try {
+                                              const f = typeof course.course_files === 'string' ? JSON.parse(course.course_files) : course.course_files
+                                              return Array.isArray(f) && f.length > 0
+                                            } catch { return false }
+                                          })() && (
+                                            <span className="text-[10px] bg-purple-900/40 text-purple-300 ring-1 ring-purple-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Has shared files">
+                                              📎
+                                            </span>
+                                          )}
+                                          <span className="ml-auto text-[0.8rem] text-zinc-400">
+                                            <span className="font-semibold text-zinc-200">{cLessons.length}</span> lesson{cLessons.length !== 1 && 's'}
                                           </span>
                                           <span
                                             onClick={(e) => {
@@ -2918,6 +3603,15 @@ export default function Home() {
 
                                         {courseOpen && (
                                           <div className="px-14 pb-3">
+                                            {/* Course-level shared files */}
+                                            <div className="mb-3 p-3 rounded-lg border border-purple-900/20 bg-[#0c0a1a]">
+                                              <CourseFilesManager
+                                                courseId={course.id}
+                                                initialFiles={course.course_files}
+                                                onSaved={updateCourseLocally}
+                                              />
+                                            </div>
+
                                             {cLessons.length === 0 ? (
                                               <p className="pl-7 py-2 text-xs text-zinc-600 italic">No lessons yet</p>
                                             ) : (
@@ -2931,13 +3625,13 @@ export default function Home() {
                                                         lesson={lesson}
                                                         teamMembers={teamMembers}
                                                         onCycleStatus={cycleStatusHandler}
-                                                        onToggleQuestion={toggleQuestion}
                                                         onDelete={(id, title) => requestDelete('lesson', id, title)}
                                                         isExpanded={!!exp.lessons[lesson.id]}
                                                         onToggleExpand={(id) => toggle('lessons', id)}
                                                         onSaved={updateLessonLocally}
                                                         onReassign={reassignHandler}
                                                         onRename={(id, v) => renameItem('lessons', id, 'title', v)}
+                                                        onUpdateField={updateLessonField}
                                                       />
                                                     ))}
                                                   </tbody>
@@ -3000,6 +3694,36 @@ export default function Home() {
         onCancel={() => setConfirmDelete(null)}
         deleting={deleting}
       />
+
+      <CelebrationPopup
+        key={celebrationKey}
+        visible={showCelebration}
+        onDone={() => setShowCelebration(false)}
+        milestone={celebrationMilestone}
+      />
+
+      {/* Warning toast */}
+      {warningMsg && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] animate-[slideUpFadeIn_0.3s_ease-out]">
+          <div className="bg-amber-950/90 border border-amber-700/60 text-amber-200 rounded-xl px-5 py-3 shadow-lg shadow-amber-900/30 flex items-center gap-3 max-w-md">
+            <span className="text-xl">⚠️</span>
+            <p className="text-sm font-medium">{warningMsg}</p>
+            <button
+              onClick={() => setWarningMsg(null)}
+              className="text-amber-500 hover:text-amber-300 ml-2 text-lg leading-none cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideUpFadeIn {
+          0% { opacity: 0; transform: translateX(-50%) translateY(20px); }
+          100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+      `}</style>
     </div>
   )
 }
