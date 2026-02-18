@@ -175,6 +175,84 @@ function buildApprovalEmail({ creatorName, teamMemberName, lessonTitle, courseNa
   }
 }
 
+const REVIEW_CAT_LABELS = {
+  music: 'Music',
+  script_narration: 'Script/Narration',
+  color_branding: 'Color/Branding',
+  format_resolution: 'Format/Resolution',
+  title_page_intro: 'Title Page/Intro',
+  transitions_effects: 'Transitions/Effects',
+  audio_quality: 'Audio Quality',
+  pacing_timing: 'Pacing/Timing',
+  captions_subtitles: 'Captions/Subtitles',
+  overall_quality: 'Overall Quality',
+}
+
+function buildReviewEmail({ reviewerName, lessonTitle, teamMemberName, categories, additionalNotes, appUrl }) {
+  const catRows = Object.entries(categories || {}).map(([key, val]) => {
+    const label = REVIEW_CAT_LABELS[key] || key
+    const approved = val.status === 'approved'
+    const statusColor = approved ? '#34d399' : '#fbbf24'
+    const statusText = approved ? '✓ Approved' : '⚠ Needs Changes'
+    const notesHtml = val.notes ? `<div style="color: #71717a; font-size: 12px; margin-top: 2px; font-style: italic;">${val.notes}</div>` : ''
+    return `
+      <tr>
+        <td style="padding: 6px 0; color: #d4d4d8; font-size: 13px; width: 160px; vertical-align: top;">${label}</td>
+        <td style="padding: 6px 0; vertical-align: top;">
+          <span style="color: ${statusColor}; font-size: 13px; font-weight: 600;">${statusText}</span>
+          ${notesHtml}
+        </td>
+      </tr>`
+  }).join('')
+
+  const additionalHtml = additionalNotes
+    ? `<div style="background-color: #1a1530; border: 1px solid #2d1b69; border-radius: 8px; padding: 14px; margin-bottom: 24px;">
+        <div style="color: #71717a; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Additional Notes</div>
+        <div style="color: #d4d4d8; font-size: 13px; line-height: 1.6; white-space: pre-wrap;">${additionalNotes}</div>
+      </div>`
+    : ''
+
+  const allApproved = Object.values(categories || {}).every((c) => c.status === 'approved')
+  const headerBg = allApproved ? 'linear-gradient(135deg, #059669 0%, #047857 100%)' : 'linear-gradient(135deg, #d97706 0%, #b45309 100%)'
+  const headerIcon = allApproved ? '✓' : '⚠'
+  const headerTitle = allApproved ? 'All Categories Approved!' : 'Review Feedback — Changes Needed'
+
+  return {
+    subject: `Video Review Feedback: ${lessonTitle}`,
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 560px; margin: 0 auto; background-color: #0e0b1a; border-radius: 16px; overflow: hidden; border: 1px solid #2d1b69;">
+        <div style="background: ${headerBg}; padding: 32px 28px; text-align: center;">
+          <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 28px; color: white; margin-bottom: 12px; line-height: 48px;">${headerIcon}</div>
+          <h1 style="color: white; margin: 0; font-size: 22px; font-weight: 700;">${headerTitle}</h1>
+          <p style="color: rgba(255,255,255,0.75); margin: 6px 0 0 0; font-size: 14px;">Mentra Video Catalog</p>
+        </div>
+
+        <div style="padding: 28px;">
+          <p style="color: #d4d4d8; font-size: 15px; line-height: 1.6; margin: 0 0 8px 0;">
+            <strong style="color: #e9d5ff;">${reviewerName || 'A reviewer'}</strong> has submitted feedback for:
+          </p>
+          <p style="color: #c084fc; font-size: 16px; font-weight: 600; margin: 0 0 4px 0;">${lessonTitle || '—'}</p>
+          <p style="color: #71717a; font-size: 13px; margin: 0 0 24px 0;">Assigned to: ${teamMemberName || 'Unassigned'}</p>
+
+          <div style="background-color: #13102a; border: 1px solid #2d1b69; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;">
+            <table style="width: 100%; border-collapse: collapse;">${catRows}</table>
+          </div>
+
+          ${additionalHtml}
+
+          <div style="text-align: center; margin-bottom: 24px;">
+            <a href="${appUrl}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); color: white; text-decoration: none; padding: 12px 32px; border-radius: 10px; font-size: 14px; font-weight: 600; letter-spacing: 0.3px;">Open Video Catalog →</a>
+          </div>
+
+          <p style="color: #52525b; font-size: 12px; text-align: center; margin: 0; line-height: 1.5;">
+            This is an automated notification from Mentra Video Catalog.
+          </p>
+        </div>
+      </div>
+    `,
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
@@ -193,6 +271,17 @@ export async function POST(request) {
 
       to = Array.isArray(managerEmail) ? managerEmail : [managerEmail]
       const email = buildCompletionEmail({ teamMemberName, lessonTitle, courseName, companyName, dateCompleted, appUrl })
+      subject = email.subject
+      html = email.html
+    } else if (type === 'review') {
+      const { recipients, reviewerName, lessonTitle, teamMemberName, categories, additionalNotes } = body
+
+      if (!recipients || !recipients.length) {
+        return Response.json({ error: 'recipients is required' }, { status: 400 })
+      }
+
+      to = recipients
+      const email = buildReviewEmail({ reviewerName, lessonTitle, teamMemberName, categories, additionalNotes, appUrl })
       subject = email.subject
       html = email.html
     } else if (type === 'approval') {

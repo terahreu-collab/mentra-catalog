@@ -2703,16 +2703,263 @@ function QuizBuilder({ lessonId, initialQuiz, onSaved }) {
 }
 
 /* ═══════════════════════════════════════════════════
+   REVIEW PANEL  —  Video QA / review form
+   ═══════════════════════════════════════════════════ */
+
+const REVIEW_CATEGORIES = [
+  { key: 'music', label: 'Music', altLabel: 'Needs Changes' },
+  { key: 'script_narration', label: 'Script/Narration', altLabel: 'Needs Clarification' },
+  { key: 'color_branding', label: 'Color/Branding', altLabel: 'Needs Changes' },
+  { key: 'format_resolution', label: 'Format/Resolution', altLabel: 'Needs Changes' },
+  { key: 'title_page_intro', label: 'Title Page/Intro', altLabel: 'Needs Changes' },
+  { key: 'transitions_effects', label: 'Transitions/Effects', altLabel: 'Needs Changes' },
+  { key: 'audio_quality', label: 'Audio Quality', altLabel: 'Needs Changes' },
+  { key: 'pacing_timing', label: 'Pacing/Timing', altLabel: 'Needs Changes' },
+  { key: 'captions_subtitles', label: 'Captions/Subtitles', altLabel: 'Needs Changes' },
+  { key: 'overall_quality', label: 'Overall Quality', altLabel: 'Needs Changes' },
+]
+
+function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, initialReviewData, onSaved }) {
+  const parseReviews = (raw) => {
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
+  }
+
+  const [history, setHistory] = useState(() => parseReviews(initialReviewData))
+  const [reviewerName, setReviewerName] = useState('B. Heavah')
+  const [categories, setCategories] = useState(() =>
+    Object.fromEntries(REVIEW_CATEGORIES.map((c) => [c.key, { status: 'approved', notes: '' }]))
+  )
+  const [additionalNotes, setAdditionalNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+
+  useEffect(() => {
+    setHistory(parseReviews(initialReviewData))
+  }, [initialReviewData])
+
+  const toggleStatus = (key) => {
+    setCategories((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], status: prev[key].status === 'approved' ? 'needs_changes' : 'approved' },
+    }))
+  }
+
+  const setNotes = (key, notes) => {
+    setCategories((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], notes },
+    }))
+  }
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+
+    const review = {
+      reviewer: reviewerName,
+      date: new Date().toISOString(),
+      categories: { ...categories },
+      additional_notes: additionalNotes,
+    }
+
+    const updatedHistory = [review, ...history]
+    setHistory(updatedHistory)
+
+    const { error } = await supabase
+      .from('lessons')
+      .update({ review_data: JSON.stringify(updatedHistory) })
+      .eq('id', lessonId)
+
+    if (error) {
+      console.error('Failed to save review:', error)
+    } else {
+      if (onSaved) onSaved(lessonId, 'review_data', updatedHistory)
+    }
+
+    /* send email notification */
+    const recipients = ['terah.bromley@almallc.com']
+    if (teamMemberEmail) recipients.push(teamMemberEmail)
+
+    fetch('/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'review',
+        recipients,
+        reviewerName,
+        lessonTitle,
+        teamMemberName: teamMemberName || 'Unassigned',
+        categories,
+        additionalNotes,
+      }),
+    }).catch((err) => console.error('Review email failed:', err))
+
+    setSubmitting(false)
+    setSubmitted(true)
+    setTimeout(() => setSubmitted(false), 3000)
+  }
+
+  const allApproved = Object.values(categories).every((c) => c.status === 'approved')
+  const needsChangesCount = Object.values(categories).filter((c) => c.status === 'needs_changes').length
+
+  return (
+    <div className="space-y-5">
+      <SectionHeading icon="🔍" title="Video Review / QA" />
+
+      {/* Reviewer Name */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Reviewer</label>
+        <input
+          className="bg-[#13102a] border border-purple-900/40 rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-purple-500/50 w-48"
+          value={reviewerName}
+          onChange={(e) => setReviewerName(e.target.value)}
+          placeholder="Reviewer name"
+        />
+      </div>
+
+      {/* Categories grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {REVIEW_CATEGORIES.map((cat) => {
+          const val = categories[cat.key]
+          const isApproved = val.status === 'approved'
+          return (
+            <div
+              key={cat.key}
+              className={`rounded-xl border p-3 transition-colors ${
+                isApproved
+                  ? 'border-emerald-800/40 bg-emerald-950/20'
+                  : 'border-amber-800/40 bg-amber-950/20'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-zinc-200">{cat.label}</span>
+                <button
+                  onClick={() => toggleStatus(cat.key)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-semibold cursor-pointer transition-all ring-1 ${
+                    isApproved
+                      ? 'bg-emerald-900/50 text-emerald-300 ring-emerald-700/60 hover:bg-emerald-900/70'
+                      : 'bg-amber-900/50 text-amber-300 ring-amber-700/60 hover:bg-amber-900/70'
+                  }`}
+                >
+                  {isApproved ? '✓ Approved' : `⚠ ${cat.altLabel}`}
+                </button>
+              </div>
+              {!isApproved && (
+                <textarea
+                  className="w-full bg-[#0e0b1a] border border-amber-900/30 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500/40 resize-none mt-1"
+                  rows={2}
+                  value={val.notes}
+                  onChange={(e) => setNotes(cat.key, e.target.value)}
+                  placeholder={`Notes about ${cat.label.toLowerCase()}…`}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Additional Notes */}
+      <div>
+        <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider block mb-2">Additional Notes</label>
+        <textarea
+          className="w-full bg-[#13102a] border border-purple-900/40 rounded-xl px-4 py-3 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none"
+          rows={4}
+          value={additionalNotes}
+          onChange={(e) => setAdditionalNotes(e.target.value)}
+          placeholder="General feedback, suggestions, or comments…"
+        />
+      </div>
+
+      {/* Summary + Submit */}
+      <div className="flex items-center justify-between pt-2">
+        <div className="text-xs text-zinc-500">
+          {allApproved ? (
+            <span className="text-emerald-400 font-medium">✓ All categories approved</span>
+          ) : (
+            <span className="text-amber-400 font-medium">⚠ {needsChangesCount} categor{needsChangesCount === 1 ? 'y' : 'ies'} need{needsChangesCount === 1 ? 's' : ''} changes</span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {submitted && <span className="text-xs text-emerald-400 font-medium">✓ Review submitted!</span>}
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !reviewerName.trim()}
+            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl px-5 py-2 text-sm font-semibold transition-colors cursor-pointer"
+          >
+            {submitting ? 'Submitting…' : 'Submit Review'}
+          </button>
+        </div>
+      </div>
+
+      {/* Review History */}
+      {history.length > 0 && (
+        <div className="mt-6 border-t border-purple-900/30 pt-5">
+          <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">Review History ({history.length})</h4>
+          <div className="space-y-3">
+            {history.map((rev, idx) => {
+              const revCats = rev.categories || {}
+              const revAll = Object.values(revCats).every((c) => c.status === 'approved')
+              const revChanges = Object.values(revCats).filter((c) => c.status === 'needs_changes').length
+              const revDate = rev.date ? new Date(rev.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
+
+              return (
+                <details key={idx} className="group rounded-xl border border-purple-900/30 bg-[#13102a] overflow-hidden">
+                  <summary className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-purple-900/10 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className={`w-2 h-2 rounded-full ${revAll ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                      <span className="text-sm text-zinc-300 font-medium">
+                        {rev.reviewer || 'Unknown'} — {revDate}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-zinc-500">
+                      {revAll ? 'All approved' : `${revChanges} change${revChanges !== 1 ? 's' : ''} needed`}
+                    </span>
+                  </summary>
+                  <div className="px-4 pb-3 pt-1 border-t border-purple-900/20 space-y-1.5">
+                    {REVIEW_CATEGORIES.map((cat) => {
+                      const c = revCats[cat.key]
+                      if (!c) return null
+                      return (
+                        <div key={cat.key} className="flex items-start gap-2 text-xs">
+                          <span className={c.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'}>
+                            {c.status === 'approved' ? '✓' : '⚠'}
+                          </span>
+                          <span className="text-zinc-400 w-36 flex-shrink-0">{cat.label}</span>
+                          {c.notes && <span className="text-zinc-500 italic">— {c.notes}</span>}
+                        </div>
+                      )
+                    })}
+                    {rev.additional_notes && (
+                      <div className="mt-2 text-xs text-zinc-500 italic border-t border-purple-900/20 pt-2">
+                        {rev.additional_notes}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════
    LESSON DETAIL PANEL  —  shown when lesson is expanded
    ═══════════════════════════════════════════════════ */
 
-function LessonDetail({ lesson, onSaved }) {
+function LessonDetail({ lesson, onSaved, teamMembers }) {
+  const videoCompleted = lesson.video_status === 'Completed'
   const [detailTab, setDetailTab] = useState('script')
   const tabs = [
     { key: 'script', label: '📝 Script' },
     { key: 'video', label: '🎬 Video' },
     { key: 'quiz', label: '❓ Quiz' },
     { key: 'files', label: '📎 Files' },
+    ...(videoCompleted ? [{ key: 'review', label: '🔍 Review' }] : []),
   ]
   const dtCls = (key) =>
     `px-4 py-2 text-xs font-medium rounded-t-lg transition-colors cursor-pointer ${
@@ -2720,6 +2967,8 @@ function LessonDetail({ lesson, onSaved }) {
         ? 'bg-[#0b091a] text-purple-300 border border-purple-800/50 border-b-0'
         : 'text-zinc-500 hover:text-zinc-300 hover:bg-purple-900/10'
     }`
+
+  const member = lesson.assigned_to ? (teamMembers || []).find((t) => t.id === lesson.assigned_to) : null
 
   return (
     <div className="bg-[#0b091a] border-t border-purple-900/30">
@@ -2759,6 +3008,16 @@ function LessonDetail({ lesson, onSaved }) {
           <FilesManager
             lessonId={lesson.id}
             initialFiles={lesson.lesson_files}
+            onSaved={onSaved}
+          />
+        )}
+        {detailTab === 'review' && videoCompleted && (
+          <ReviewPanel
+            lessonId={lesson.id}
+            lessonTitle={lesson.title}
+            teamMemberEmail={member?.email || null}
+            teamMemberName={member?.name || null}
+            initialReviewData={lesson.review_data}
             onSaved={onSaved}
           />
         )}
@@ -2873,6 +3132,25 @@ function LessonRow({ lesson, teamMembers, creators, onCycleStatus, onDelete, isE
                 📎
               </span>
             )}
+            {/* Review status badge */}
+            {(() => {
+              try {
+                const rd = typeof lesson.review_data === 'string' ? JSON.parse(lesson.review_data) : lesson.review_data
+                if (!Array.isArray(rd) || rd.length === 0) return null
+                const latest = rd[0]
+                const cats = latest.categories || {}
+                const allApproved = Object.values(cats).every((c) => c.status === 'approved')
+                return allApproved ? (
+                  <span className="text-[10px] bg-emerald-900/40 text-emerald-300 ring-1 ring-emerald-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Review: All approved">
+                    ✓ QA
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-amber-900/40 text-amber-300 ring-1 ring-amber-700/50 rounded-full px-1.5 py-0.5 font-medium" title="Review: Changes needed">
+                    ⚠ QA
+                  </span>
+                )
+              } catch { return null }
+            })()}
           </div>
         </td>
         <td className="py-2.5 px-3">
@@ -3035,7 +3313,7 @@ function LessonRow({ lesson, teamMembers, creators, onCycleStatus, onDelete, isE
       {isExpanded && (
         <tr>
           <td colSpan={10} className="p-0">
-            <LessonDetail lesson={lesson} onSaved={onSaved} />
+            <LessonDetail lesson={lesson} onSaved={onSaved} teamMembers={teamMembers} />
           </td>
         </tr>
       )}
