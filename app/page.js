@@ -3212,13 +3212,13 @@ export default function Home() {
       setNotifications((prev) => [...notifData, ...prev])
     }
 
-    /* send email to manager (fire-and-forget) */
+    /* send email to managers (fire-and-forget) */
     fetch('/api/send-notification', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'completion',
-        managerEmail: 'terah.bromley@almallc.com',
+        managerEmail: ['terah.bromley@almallc.com', 'bHeavah@gmail.com'],
         teamMemberName: memberName,
         lessonTitle: lesson.title,
         courseName: course?.name || '',

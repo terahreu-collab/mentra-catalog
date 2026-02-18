@@ -191,7 +191,7 @@ export async function POST(request) {
         return Response.json({ error: 'managerEmail is required' }, { status: 400 })
       }
 
-      to = [managerEmail]
+      to = Array.isArray(managerEmail) ? managerEmail : [managerEmail]
       const email = buildCompletionEmail({ teamMemberName, lessonTitle, courseName, companyName, dateCompleted, appUrl })
       subject = email.subject
       html = email.html
