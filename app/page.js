@@ -2771,7 +2771,7 @@ function LessonDetail({ lesson, onSaved }) {
    LESSON ROW  —  expandable with detail panel
    ═══════════════════════════════════════════════════ */
 
-function LessonRow({ lesson, teamMembers, creators, onCycleStatus, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename, onUpdateField }) {
+function LessonRow({ lesson, teamMembers, creators, onCycleStatus, onDelete, isExpanded, onToggleExpand, onSaved, onReassign, onRename, onUpdateField, onApprove }) {
   const member = teamMembers.find((t) => t.id === lesson.assigned_to)
   const overdue = isOverdue(lesson)
   const [editingDate, setEditingDate] = useState(null) // 'date_assigned' | 'due_date' | null
@@ -3011,7 +3011,7 @@ function LessonRow({ lesson, teamMembers, creators, onCycleStatus, onDelete, isE
         </td>
         <td className="py-2.5 px-3 text-center">
           <button
-            onClick={() => onUpdateField(lesson.id, 'approved', !lesson.approved)}
+            onClick={() => onApprove(lesson.id, !lesson.approved)}
             className={`w-6 h-6 rounded-md text-xs font-bold cursor-pointer transition-all border ${
               lesson.approved
                 ? 'bg-emerald-900/50 text-emerald-300 border-emerald-600/60 ring-1 ring-emerald-700/50'
@@ -3226,6 +3226,61 @@ export default function Home() {
         dateCompleted,
       }),
     }).catch((err) => console.error('Completion email failed:', err))
+  }
+
+  /* ─── send approval notification (email + in-app) ─── */
+  const sendApprovalNotification = async (lesson) => {
+    const member = lesson.assigned_to ? teamMembers.find((t) => t.id === lesson.assigned_to) : null
+    const memberName = member?.name || 'Unassigned'
+    const creator = lesson.created_by ? creators.find((c) => c.id === lesson.created_by) : null
+    const creatorName = creator?.name || '—'
+    const course = courses.find((c) => c.id === lesson.course_id)
+    const dept = course ? departments.find((d) => d.id === course.department_id) : null
+    const company = dept ? companies.find((co) => co.id === dept.company_id) : null
+    const dateApproved = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+
+    const message = `Approved for payment: "${lesson.title}" — creator: ${creatorName}`
+
+    /* create in-app notification */
+    const { data: notifData } = await supabase.from('notifications').insert({
+      team_member_id: lesson.assigned_to || null,
+      message,
+      is_read: false,
+    }).select()
+
+    if (notifData) {
+      setNotifications((prev) => [...notifData, ...prev])
+    }
+
+    /* send email (fire-and-forget) */
+    fetch('/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'approval',
+        recipientEmail: 'jaxelbromley@almallc.net',
+        creatorName,
+        teamMemberName: memberName,
+        lessonTitle: lesson.title,
+        courseName: course?.name || '',
+        companyName: company?.name || '',
+        dateApproved,
+      }),
+    }).catch((err) => console.error('Approval email failed:', err))
+  }
+
+  /* ─── approve handler (update field + send notification) ─── */
+  const approveHandler = async (lessonId, newValue) => {
+    const lesson = lessons.find((l) => l.id === lessonId)
+    /* optimistic update */
+    setLessons((prev) => prev.map((l) => (l.id === lessonId ? { ...l, approved: newValue } : l)))
+    const { error } = await supabase.from('lessons').update({ approved: newValue }).eq('id', lessonId)
+    if (error) { console.error('Approve update failed:', error); fetchAll() }
+
+    /* only send notification when changing from unchecked → checked */
+    if (newValue && lesson) {
+      sendApprovalNotification(lesson)
+    }
   }
 
   /* ─── expand / collapse helpers ─── */
@@ -3711,6 +3766,7 @@ export default function Home() {
                                                         onReassign={reassignHandler}
                                                         onRename={(id, v) => renameItem('lessons', id, 'title', v)}
                                                         onUpdateField={updateLessonField}
+                                                        onApprove={approveHandler}
                                                       />
                                                     ))}
                                                   </tbody>

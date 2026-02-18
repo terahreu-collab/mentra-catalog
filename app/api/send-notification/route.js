@@ -113,6 +113,68 @@ function buildCompletionEmail({ teamMemberName, lessonTitle, courseName, company
   }
 }
 
+function buildApprovalEmail({ creatorName, teamMemberName, lessonTitle, courseName, companyName, dateApproved, appUrl }) {
+  return {
+    subject: `Payment Ready: ${lessonTitle} - Approved for Payment`,
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 560px; margin: 0 auto; background-color: #0e0b1a; border-radius: 16px; overflow: hidden; border: 1px solid #2d1b69;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 32px 28px; text-align: center;">
+          <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 28px; color: white; margin-bottom: 12px; line-height: 48px;">💰</div>
+          <h1 style="color: white; margin: 0; font-size: 22px; font-weight: 700;">Approved for Payment</h1>
+          <p style="color: rgba(255,255,255,0.75); margin: 6px 0 0 0; font-size: 14px;">Mentra Video Catalog</p>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 28px;">
+          <p style="color: #d4d4d8; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+            This lesson has been approved and is ready for creator payment.
+          </p>
+
+          <!-- Details Card -->
+          <div style="background-color: #13102a; border: 1px solid #2d1b69; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; width: 120px;">Lesson</td>
+                <td style="padding: 8px 0; color: #60a5fa; font-size: 14px; font-weight: 600;">${lessonTitle || '—'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Creator</td>
+                <td style="padding: 8px 0; color: #e4e4e7; font-size: 14px;">${creatorName || '—'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Assigned To</td>
+                <td style="padding: 8px 0; color: #e4e4e7; font-size: 14px;">${teamMemberName || 'Unassigned'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Course</td>
+                <td style="padding: 8px 0; color: #e4e4e7; font-size: 14px;">${courseName || '—'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Company</td>
+                <td style="padding: 8px 0; color: #e4e4e7; font-size: 14px;">${companyName || '—'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Date Approved</td>
+                <td style="padding: 8px 0; color: #e4e4e7; font-size: 14px;">${dateApproved || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- CTA Button -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <a href="${appUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; text-decoration: none; padding: 12px 32px; border-radius: 10px; font-size: 14px; font-weight: 600; letter-spacing: 0.3px;">Open Video Catalog →</a>
+          </div>
+
+          <p style="color: #52525b; font-size: 12px; text-align: center; margin: 0; line-height: 1.5;">
+            This is an automated notification from Mentra Video Catalog.
+          </p>
+        </div>
+      </div>
+    `,
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
@@ -131,6 +193,17 @@ export async function POST(request) {
 
       to = [managerEmail]
       const email = buildCompletionEmail({ teamMemberName, lessonTitle, courseName, companyName, dateCompleted, appUrl })
+      subject = email.subject
+      html = email.html
+    } else if (type === 'approval') {
+      const { recipientEmail, creatorName, teamMemberName, lessonTitle, courseName, companyName, dateApproved } = body
+
+      if (!recipientEmail) {
+        return Response.json({ error: 'recipientEmail is required' }, { status: 400 })
+      }
+
+      to = [recipientEmail]
+      const email = buildApprovalEmail({ creatorName, teamMemberName, lessonTitle, courseName, companyName, dateApproved, appUrl })
       subject = email.subject
       html = email.html
     } else {
