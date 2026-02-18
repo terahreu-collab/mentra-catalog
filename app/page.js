@@ -2730,7 +2730,7 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
   const [history, setHistory] = useState(() => parseReviews(initialReviewData))
   const [reviewerName, setReviewerName] = useState('B. Heavah')
   const [categories, setCategories] = useState(() =>
-    Object.fromEntries(REVIEW_CATEGORIES.map((c) => [c.key, { status: 'approved', notes: '' }]))
+    Object.fromEntries(REVIEW_CATEGORIES.map((c) => [c.key, { status: 'not_reviewed', notes: '' }]))
   )
   const [additionalNotes, setAdditionalNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -2740,10 +2740,10 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
     setHistory(parseReviews(initialReviewData))
   }, [initialReviewData])
 
-  const toggleStatus = (key) => {
+  const setCatStatus = (key, status) => {
     setCategories((prev) => ({
       ...prev,
-      [key]: { ...prev[key], status: prev[key].status === 'approved' ? 'needs_changes' : 'approved' },
+      [key]: { ...prev[key], status },
     }))
   }
 
@@ -2753,6 +2753,9 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
       [key]: { ...prev[key], notes },
     }))
   }
+
+  const reviewedCount = Object.values(categories).filter((c) => c.status !== 'not_reviewed').length
+  const allReviewed = reviewedCount === REVIEW_CATEGORIES.length
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -2801,8 +2804,9 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
     setTimeout(() => setSubmitted(false), 3000)
   }
 
-  const allApproved = Object.values(categories).every((c) => c.status === 'approved')
+  const allApproved = allReviewed && Object.values(categories).every((c) => c.status === 'approved')
   const needsChangesCount = Object.values(categories).filter((c) => c.status === 'needs_changes').length
+  const notReviewedCount = REVIEW_CATEGORIES.length - reviewedCount
 
   return (
     <div className="space-y-5">
@@ -2819,36 +2823,50 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
         />
       </div>
 
+      {/* Progress indicator */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-purple-500 rounded-full transition-all duration-300"
+            style={{ width: `${(reviewedCount / REVIEW_CATEGORIES.length) * 100}%` }}
+          />
+        </div>
+        <span className="text-xs text-zinc-400 font-medium whitespace-nowrap">
+          {reviewedCount} of {REVIEW_CATEGORIES.length} reviewed
+        </span>
+      </div>
+
       {/* Categories grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {REVIEW_CATEGORIES.map((cat) => {
           const val = categories[cat.key]
-          const isApproved = val.status === 'approved'
+          const st = val.status
+          const borderCls = st === 'approved' ? 'border-emerald-800/40 bg-emerald-950/20'
+            : st === 'needs_changes' ? 'border-amber-800/40 bg-amber-950/20'
+            : 'border-zinc-800/60 bg-zinc-900/20'
           return (
-            <div
-              key={cat.key}
-              className={`rounded-xl border p-3 transition-colors ${
-                isApproved
-                  ? 'border-emerald-800/40 bg-emerald-950/20'
-                  : 'border-amber-800/40 bg-amber-950/20'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
+            <div key={cat.key} className={`rounded-xl border p-3 transition-colors ${borderCls}`}>
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium text-zinc-200">{cat.label}</span>
-                <button
-                  onClick={() => toggleStatus(cat.key)}
-                  className={`px-3 py-1 rounded-full text-[11px] font-semibold cursor-pointer transition-all ring-1 ${
-                    isApproved
-                      ? 'bg-emerald-900/50 text-emerald-300 ring-emerald-700/60 hover:bg-emerald-900/70'
-                      : 'bg-amber-900/50 text-amber-300 ring-amber-700/60 hover:bg-amber-900/70'
+                <select
+                  value={st}
+                  onChange={(e) => setCatStatus(cat.key, e.target.value)}
+                  className={`text-[11px] font-semibold rounded-full px-3 py-1 ring-1 cursor-pointer outline-none transition-all appearance-none text-center ${
+                    st === 'approved'
+                      ? 'bg-emerald-900/50 text-emerald-300 ring-emerald-700/60'
+                      : st === 'needs_changes'
+                      ? 'bg-amber-900/50 text-amber-300 ring-amber-700/60'
+                      : 'bg-zinc-800/50 text-zinc-400 ring-zinc-700/60'
                   }`}
                 >
-                  {isApproved ? '✓ Approved' : `⚠ ${cat.altLabel}`}
-                </button>
+                  <option value="not_reviewed">Not Reviewed</option>
+                  <option value="approved">✓ Approved</option>
+                  <option value="needs_changes">⚠ {cat.altLabel}</option>
+                </select>
               </div>
-              {!isApproved && (
+              {st === 'needs_changes' && (
                 <textarea
-                  className="w-full bg-[#0e0b1a] border border-amber-900/30 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500/40 resize-none mt-1"
+                  className="w-full bg-[#0e0b1a] border border-amber-900/30 rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500/40 resize-none mt-2"
                   rows={2}
                   value={val.notes}
                   onChange={(e) => setNotes(cat.key, e.target.value)}
@@ -2875,7 +2893,9 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
       {/* Summary + Submit */}
       <div className="flex items-center justify-between pt-2">
         <div className="text-xs text-zinc-500">
-          {allApproved ? (
+          {!allReviewed ? (
+            <span className="text-zinc-400 font-medium">{notReviewedCount} categor{notReviewedCount === 1 ? 'y' : 'ies'} still need{notReviewedCount === 1 ? 's' : ''} review</span>
+          ) : allApproved ? (
             <span className="text-emerald-400 font-medium">✓ All categories approved</span>
           ) : (
             <span className="text-amber-400 font-medium">⚠ {needsChangesCount} categor{needsChangesCount === 1 ? 'y' : 'ies'} need{needsChangesCount === 1 ? 's' : ''} changes</span>
@@ -2885,8 +2905,9 @@ function ReviewPanel({ lessonId, lessonTitle, teamMemberEmail, teamMemberName, i
           {submitted && <span className="text-xs text-emerald-400 font-medium">✓ Review submitted!</span>}
           <button
             onClick={handleSubmit}
-            disabled={submitting || !reviewerName.trim()}
-            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl px-5 py-2 text-sm font-semibold transition-colors cursor-pointer"
+            disabled={submitting || !reviewerName.trim() || !allReviewed}
+            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl px-5 py-2 text-sm font-semibold transition-colors cursor-pointer"
+            title={!allReviewed ? 'Review all categories before submitting' : ''}
           >
             {submitting ? 'Submitting…' : 'Submit Review'}
           </button>
